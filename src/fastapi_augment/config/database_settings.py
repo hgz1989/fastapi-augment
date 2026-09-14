@@ -71,16 +71,16 @@ class DatabaseSettings(BaseModel):
     # ------------------------------
     # 公共配置
     # ------------------------------
-    engine: str = 'postgresql'
-    host: str = '127.0.0.1'
-    port: int = 5432  # 0 表示按 engine 自动推导
-    user: str = 'postgres'
+    engine: str = '<engine>'
+    host: str = '<host>'
+    port: int = 0  # 0 表示按 engine 自动推导
+    user: str = '<user>'
     password: str = '<password>'
     name: str = '<name>'
     # SQLite 专用：文件路径，为空时回退到 name
     file_path: str = ''
     # 连接标识，便于 DBA 在 pg_stat_activity 等视图中定位来源
-    application_name: str = 'iam'
+    application_name: str = ''
 
     # 连接池
     pool_enabled: bool = True
