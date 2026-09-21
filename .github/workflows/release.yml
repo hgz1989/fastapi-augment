@@ -12,6 +12,7 @@
 #
 # 触发方式：
 #   - 手动触发（workflow_dispatch）：release=发布新版本；rebuild=重新打包指定版本
+#   —— 发布类操作仅 master 分支可执行（job 级 if 校验），其它分支手动触发将被跳过
 #
 # 产物：GitHub Release vX.Y.Z + 资产 fastapi_augment-X.Y.Z.zip / .tar.gz
 # ============================================================
@@ -40,6 +41,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
+    # 发布类操作仅 master 分支可执行；其它分支手动触发将直接跳过
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,16 +78,15 @@ jobs:
             python .github/scripts/release_version.py --mode release
           fi
 
-      # release 模式：代码版本与目标不一致时才更新并提交（rebuild 不修改代码）
+      # 版本一致性校验：目标版本与代码版本不一致时终止并引导
+      # master 受保护（禁止直接提交代码）：版本同步需在 develop 分支完成并 PR 合并
       - name: Update version files
         if: steps.resolve.outputs.changed == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION src/fastapi_augment/factory.py
-          git commit -m "release: 同步版本至 ${{ steps.resolve.outputs.final_version }}"
-          git push origin "$(git rev-parse --abbrev-ref HEAD)"
-          echo "已更新版本号文件并提交"
+          echo "::error::代码版本与目标版本不一致（目标 v${{ steps.resolve.outputs.final_version }}）"
+          echo "master 受保护，不允许直接提交代码；请先在 develop 分支更新 VERSION 与 factory.py 的 create_app 默认版本，"
+          echo "通过 PR 合并到 master 后重新触发发布"
+          exit 1
 
       # rebuild 模式：检出目标 tag 对应代码重新打包
       - name: Checkout rebuild tag

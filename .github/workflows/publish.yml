@@ -5,6 +5,8 @@ on:
 
 jobs:
   test:
+    # PyPI 发布仅 master 分支可执行；其它分支手动触发将直接跳过
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -32,6 +34,7 @@ jobs:
 
   publish:
     needs: test
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       id-token: write

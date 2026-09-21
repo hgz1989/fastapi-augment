@@ -718,6 +718,12 @@ validate_asgi_import('apps.platform:platform_app')
 
 ## 开发与发布
 
+### 分支策略
+
+- **`master`** — 受保护分支，**禁止直接提交代码**，仅可通过其它分支 PR 合并
+- **`develop`**（或功能分支）— 日常开发与版本号更新，完成后通过 PR 合并到 `master`
+- 发布类操作（Release 打 tag / 上传、PyPI 发布）**仅 `master` 分支可执行**，workflow 已做分支校验
+
 ### 代码检查与测试
 
 ```bash
@@ -732,13 +738,15 @@ CI 已配置自动检查（`.github/workflows/lint.yml`）：每次 push / PR �
 
 ### 发布 Release
 
-`.github/workflows/release.yml` 手动触发（workflow_dispatch），自动完成：
+`.github/workflows/release.yml` 在 **master 分支**手动触发（workflow_dispatch），自动完成：
 
 1. **检查** — pytest + ruff，任一失败即停止，不发布
 2. **确定版本** — 无 tag 用代码版本（`VERSION` 文件）；代码版本 > 最高 tag 用代码版本；否则以最高 tag 版本为准
-3. **同步版本** — 自动更新 `VERSION` 与 `factory.py` 中 `create_app` 的默认版本并提交
+3. **校验版本一致性** — 目标版本与代码版本不一致时终止并引导（master 受保护，需先在 `develop` 更新 `VERSION` 与 `factory.py` 版本，PR 合并后重试）
 4. **打包** — 源码打包为 `fastapi_augment-<版本>.zip` / `.tar.gz`（排除 `.venv`、缓存、构建产物）
 5. **打 tag + 发布** — 打包成功后才创建/更新 `v<版本>` tag 并上传 GitHub Release；失败不留任何 tag/Release，重试不会跳版本
+
+建议发布前先在 `develop` 分支完成版本号更新并 PR 合并到 `master`，发布流程将直接复用代码版本。
 
 支持两种模式：
 
