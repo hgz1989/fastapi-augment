@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # 拉取全部历史与 tag
 
@@ -89,7 +89,7 @@ jobs:
       # rebuild 模式：检出目标 tag 对应代码重新打包
       - name: Checkout rebuild tag
         if: inputs.mode == 'rebuild'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.rebuild_tag }}
 
