@@ -6,36 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    # PyPI 发布仅 master 分支可执行；其它分支手动触发将直接跳过
-    if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12', '3.13']
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.0
-
-      - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --group dev --all-extras
-
-      - name: Run lint
-        run: uvx ruff check src tests
-
-      - name: Run tests
-        run: uv run pytest -q
-
+  # 检查（ruff + pytest）已在 PR 阶段（CI workflow）完成，此处直接构建并发布 PyPI
   publish:
-    needs: test
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -45,22 +17,33 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2  # 版本守卫需要对比 HEAD^ 与 HEAD
+          fetch-depth: 0  # 版本守卫需要读取全部 tag
 
-      # 版本变更守卫：push 触发时仅 VERSION 有变更才发布（PyPI 版本不可覆盖）；
+      # 版本守卫：tag 与 Release 都存在且版本一致才跳过（PyPI 版本不可覆盖）；缺任一则发布；
       # workflow_dispatch 手动触发不受守卫限制
       - name: Check version change
         id: versioncheck
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          CODE_VERSION=$(cat VERSION)
+          TARGET="v$CODE_VERSION"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only HEAD^ HEAD | grep -q '^VERSION$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "本次 push 未变更 VERSION，跳过 PyPI 发布"
+            TAG_EXISTS=$(git rev-parse "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+            RELEASE_EXISTS=$(gh release view "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+            echo "版本 $CODE_VERSION：tag=$TAG_EXISTS release=$RELEASE_EXISTS"
+            if [ "$TAG_EXISTS" = "yes" ] && [ "$RELEASE_EXISTS" = "yes" ]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "tag 与 Release 均已存在，跳过 PyPI 发布"
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "缺少 tag 或 Release，继续 PyPI 发布"
+            fi
           fi
 
+      # 发布门禁：需要发布时，发布前最后验证一次代码（防止绕过分支保护直接发布未验证代码）
       - name: Setup Python 3.11
         if: steps.versioncheck.outputs.changed == 'true'
         uses: actions/setup-python@v6
@@ -68,11 +51,36 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      - name: Install dependencies
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          pip install uv
+          uv sync --group dev --all-extras
+
+      - name: Run tests
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uv run pytest -q
+
+      - name: Run lint
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uvx ruff check src tests
+
       - name: Build package
         if: steps.versioncheck.outputs.changed == 'true'
         run: |
           pip install --upgrade pip build
           python -m build
+
+      # 版本一致性断言：PyPI 产物版本必须与 VERSION（即 tag 版本）完全一致
+      - name: Verify built version matches VERSION
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          EXPECTED=$(cat VERSION)
+          ls dist/ | grep -q "$EXPECTED" || {
+            echo "::error::构建产物版本与 VERSION 文件（$EXPECTED）不一致，已中止"
+            exit 1
+          }
+          echo "构建产物版本 $EXPECTED 与 VERSION/tag 一致"
 
       - name: Publish to PyPI
         if: steps.versioncheck.outputs.changed == 'true'
