@@ -738,7 +738,12 @@ CI 已配置自动检查（`.github/workflows/lint.yml`）：每次 push / PR �
 
 ### 发布 Release
 
-`.github/workflows/release.yml` 在 **master 分支**手动触发（workflow_dispatch），自动完成：
+`.github/workflows/release.yml` 触发方式：
+
+- **推送到 `master`（自动）** — 本次合并变更了 `VERSION` 时自动发布新版本（打 tag + 上传 GitHub Release）；未变更则跳过，避免重复发布
+- **master 分支手动触发**（workflow_dispatch）— `release` 发布新版本 / `rebuild` 重新打包指定版本
+
+发布类操作仅 master 分支可执行，自动完成：
 
 1. **检查** — pytest + ruff，任一失败即停止，不发布
 2. **确定版本** — 无 tag 用代码版本（`VERSION` 文件）；代码版本 > 最高 tag 用代码版本；否则以最高 tag 版本为准
@@ -746,7 +751,9 @@ CI 已配置自动检查（`.github/workflows/lint.yml`）：每次 push / PR �
 4. **打包** — 源码打包为 `fastapi_augment-<版本>.zip` / `.tar.gz`（排除 `.venv`、缓存、构建产物）
 5. **打 tag + 发布** — 打包成功后才创建/更新 `v<版本>` tag 并上传 GitHub Release；失败不留任何 tag/Release，重试不会跳版本
 
-建议发布前先在 `develop` 分支完成版本号更新并 PR 合并到 `master`，发布流程将直接复用代码版本。
+建议发布前先在 `develop` 分支完成版本号更新并 PR 合并到 `master`——合并触发自动发布，发布流程将直接复用代码版本。
+
+PyPI 发布（`.github/workflows/publish.yml`）同样支持合并 `master` 自动触发，仅 `VERSION` 变更时发布（PyPI 版本不可覆盖）。
 
 支持两种模式：
 
