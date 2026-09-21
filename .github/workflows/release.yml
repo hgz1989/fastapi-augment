@@ -86,6 +86,28 @@ jobs:
             fi
           fi
 
+      # 发布门禁：确认需要发布（守卫 changed=true）后，发布前最后再验证一次代码——
+      # 防止绕过分支保护直接 push master 发布未验证代码；不需要发布时直接跳过
+      - name: Setup Python
+        if: steps.versioncheck.outputs.changed == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          pip install uv
+          uv sync --group dev --all-extras
+
+      - name: Run tests
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uv run --frozen pytest -q
+
+      - name: Run lint
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uvx ruff check src tests
+
       # ---------- 解析目标版本（打 tag 挪到打包成功后）----------
       - name: Resolve target version
         id: resolve

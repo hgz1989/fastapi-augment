@@ -43,6 +43,7 @@ jobs:
             fi
           fi
 
+      # 发布门禁：需要发布时，发布前最后验证一次代码（防止绕过分支保护直接发布未验证代码）
       - name: Setup Python 3.11
         if: steps.versioncheck.outputs.changed == 'true'
         uses: actions/setup-python@v6
@@ -50,11 +51,36 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      - name: Install dependencies
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          pip install uv
+          uv sync --group dev --all-extras
+
+      - name: Run tests
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uv run pytest -q
+
+      - name: Run lint
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uvx ruff check src tests
+
       - name: Build package
         if: steps.versioncheck.outputs.changed == 'true'
         run: |
           pip install --upgrade pip build
           python -m build
+
+      # 版本一致性断言：PyPI 产物版本必须与 VERSION（即 tag 版本）完全一致
+      - name: Verify built version matches VERSION
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          EXPECTED=$(cat VERSION)
+          ls dist/ | grep -q "$EXPECTED" || {
+            echo "::error::构建产物版本与 VERSION 文件（$EXPECTED）不一致，已中止"
+            exit 1
+          }
+          echo "构建产物版本 $EXPECTED 与 VERSION/tag 一致"
 
       - name: Publish to PyPI
         if: steps.versioncheck.outputs.changed == 'true'
