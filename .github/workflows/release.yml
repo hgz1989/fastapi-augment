@@ -7,7 +7,7 @@
 #      rebuild=使用指定 tag 重新打包
 #   2. 校验版本一致性：目标版本与代码版本不一致时终止并引导（master 受保护，需先在 develop 更新并 PR 合并）
 #   3. 打包源码（zip + tar.gz）
-#   4. 打包成功后：打版本 tag 并推送、上传到 GitHub Release
+#   4. 打包成功后：上传 GitHub Release（tag 由 Release 自动创建，失败不留半成品）
 #   —— 打包失败不留下任何 tag/Release，重试不会跳版本号
 #
 # 触发方式：
@@ -71,26 +71,33 @@ jobs:
       - name: Run lint
         run: uvx ruff check src tests
 
-      # 版本守卫：无历史 tag，或代码版本（VERSION 文件）高于最新 tag 时才发布；
-      # workflow_dispatch 手动触发不受守卫限制
+      # 版本守卫：tag 与 Release 都存在且版本一致才跳过；缺任一则补齐；
+      # rebuild 模式放行；手动触发若版本已完整则报错引导先更新 VERSION
       - name: Check version change
         id: versioncheck
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           CODE_VERSION=$(cat VERSION)
-          LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          TARGET="v$CODE_VERSION"
+          if [ "${{ inputs.mode }}" = "rebuild" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif [ -z "$LATEST_TAG" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "无历史 tag，按代码版本 $CODE_VERSION 发布"
+            echo "rebuild 模式：直接放行"
           else
-            TAG_VER="${LATEST_TAG#v}"
-            if [ "$(printf '%s\n%s\n' "$CODE_VERSION" "$TAG_VER" | sort -V | tail -n 1)" = "$CODE_VERSION" ] && [ "$CODE_VERSION" != "$TAG_VER" ]; then
-              echo "changed=true" >> "$GITHUB_OUTPUT"
-              echo "代码版本 $CODE_VERSION > 最新 tag $TAG_VER，发布新版本"
+            TAG_EXISTS=$(git rev-parse "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+            RELEASE_EXISTS=$(gh release view "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+            echo "版本 $CODE_VERSION：tag=$TAG_EXISTS release=$RELEASE_EXISTS"
+            if [ "$TAG_EXISTS" = "yes" ] && [ "$RELEASE_EXISTS" = "yes" ]; then
+              if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                echo "::error::$TARGET 的 tag 与 Release 均已存在，请先在 develop 更新 VERSION 再手动发布"
+                exit 1
+              else
+                echo "changed=false" >> "$GITHUB_OUTPUT"
+                echo "tag 与 Release 均已存在，跳过发布"
+              fi
             else
-              echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "代码版本 $CODE_VERSION <= 最新 tag $TAG_VER，跳过发布"
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "缺少 tag 或 Release，继续补齐"
             fi
           fi
 
@@ -127,16 +134,8 @@ jobs:
         if: steps.versioncheck.outputs.changed == 'true'
         run: python .github/scripts/release_package.py "${{ steps.resolve.outputs.final_version }}"
 
-      # 打包成功后打 tag 并推送（release 模式；tag 已存在则更新指向）
-      - name: Create or update tag
-        if: steps.versioncheck.outputs.changed == 'true' && inputs.mode != 'rebuild'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "v${{ steps.resolve.outputs.final_version }}"
-          git push origin "v${{ steps.resolve.outputs.final_version }}" --force
-          echo "打包成功，已更新 tag: v${{ steps.resolve.outputs.final_version }}"
-
+      # 打包成功后上传 Release：tag 由 gh release create 自动创建（tag 不存在时指向当前 commit，
+      # 已存在则关联）——保证 Release 成功时 tag 必然存在，失败不留半成品
       - name: Create or update Release
         if: steps.versioncheck.outputs.changed == 'true'
         env:

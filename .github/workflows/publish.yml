@@ -47,26 +47,27 @@ jobs:
         with:
           fetch-depth: 0  # 版本守卫需要读取全部 tag
 
-      # 版本守卫：无历史 tag，或代码版本（VERSION 文件）高于最新 tag 时才发布（PyPI 版本不可覆盖）；
+      # 版本守卫：tag 与 Release 都存在且版本一致才跳过（PyPI 版本不可覆盖）；缺任一则发布；
       # workflow_dispatch 手动触发不受守卫限制
       - name: Check version change
         id: versioncheck
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           CODE_VERSION=$(cat VERSION)
-          LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          TARGET="v$CODE_VERSION"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif [ -z "$LATEST_TAG" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "无历史 tag，按代码版本 $CODE_VERSION 发布"
           else
-            TAG_VER="${LATEST_TAG#v}"
-            if [ "$(printf '%s\n%s\n' "$CODE_VERSION" "$TAG_VER" | sort -V | tail -n 1)" = "$CODE_VERSION" ] && [ "$CODE_VERSION" != "$TAG_VER" ]; then
-              echo "changed=true" >> "$GITHUB_OUTPUT"
-              echo "代码版本 $CODE_VERSION > 最新 tag $TAG_VER，发布新版本"
-            else
+            TAG_EXISTS=$(git rev-parse "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+            RELEASE_EXISTS=$(gh release view "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+            echo "版本 $CODE_VERSION：tag=$TAG_EXISTS release=$RELEASE_EXISTS"
+            if [ "$TAG_EXISTS" = "yes" ] && [ "$RELEASE_EXISTS" = "yes" ]; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
-              echo "代码版本 $CODE_VERSION <= 最新 tag $TAG_VER，跳过 PyPI 发布"
+              echo "tag 与 Release 均已存在，跳过 PyPI 发布"
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "缺少 tag 或 Release，继续 PyPI 发布"
             fi
           fi
 
