@@ -62,7 +62,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install uv
-          uv sync --group dev
+          uv sync --group dev --all-extras
 
       # ---------- 检查：测试 + lint（任一失败则后续步骤不执行，不会发布）----------
       - name: Run tests
