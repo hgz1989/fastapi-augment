@@ -71,18 +71,27 @@ jobs:
       - name: Run lint
         run: uvx ruff check src tests
 
-      # 版本变更守卫：push 触发时仅 VERSION 有变更才自动发布（避免重复发布与强制覆盖 tag）；
+      # 版本守卫：无历史 tag，或代码版本（VERSION 文件）高于最新 tag 时才发布；
       # workflow_dispatch 手动触发不受守卫限制
       - name: Check version change
         id: versioncheck
         run: |
+          CODE_VERSION=$(cat VERSION)
+          LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "${{ github.event.before }}" HEAD | grep -q '^VERSION$'; then
+          elif [ -z "$LATEST_TAG" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "无历史 tag，按代码版本 $CODE_VERSION 发布"
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "本次 push 未变更 VERSION，跳过自动发布"
+            TAG_VER="${LATEST_TAG#v}"
+            if [ "$(printf '%s\n%s\n' "$CODE_VERSION" "$TAG_VER" | sort -V | tail -n 1)" = "$CODE_VERSION" ] && [ "$CODE_VERSION" != "$TAG_VER" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "代码版本 $CODE_VERSION > 最新 tag $TAG_VER，发布新版本"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "代码版本 $CODE_VERSION <= 最新 tag $TAG_VER，跳过发布"
+            fi
           fi
 
       # ---------- 解析目标版本（打 tag 挪到打包成功后）----------
@@ -130,6 +139,8 @@ jobs:
 
       - name: Create or update Release
         if: steps.versioncheck.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.resolve.outputs.final_version }}"
           ASSETS="dist-release/${{ env.APP_NAME }}-${VERSION}.zip dist-release/${{ env.APP_NAME }}-${VERSION}.tar.gz"
