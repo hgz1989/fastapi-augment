@@ -23,7 +23,7 @@ class TestCreateAppBasic:
     def test_default_metadata(self):
         app = create_app()
         assert app.title == 'FastAPI Augment'
-        assert app.version == '0.1.0'
+        assert app.version == '0.1.5'
         assert app.description.startswith('FastAPI Augment')
 
     def test_custom_metadata(self):
