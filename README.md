@@ -700,7 +700,7 @@ request_id = get_request_id()
 **约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 FastAPI 实例（如 `platform_app`）；只有出现在 `__all__` 且确实是 `FastAPI` 实例的对象才被识别为"应用"。
 
 ```python
-from fastapi_augment.common import discover_fastapi_apps, FastAPIAppSpec, verify_fastapi_app
+from fastapi_augment.common import discover_fastapi_apps, FastAPIAppSpec, validate_asgi_import
 
 # 发现全部应用（排除主应用，获取主应用之外的其它应用）
 apps: list[FastAPIAppSpec] = discover_fastapi_apps(root='apps', exclude='apps.platform:platform_app')
@@ -710,7 +710,7 @@ for spec in apps:
     uvicorn.run(spec.import_string)   # 'apps.platform:platform_app'
 
 # 启动前校验主应用导入串是否真实存在且为 FastAPI 实例
-verify_fastapi_app('apps.platform:platform_app')
+validate_asgi_import('apps.platform:platform_app')
 ```
 
 - **`exclude` 支持三种标识** — 模块名（`apps.platform`）、导出名（`platform_app`）或 `module:name` 导入串（`apps.platform:platform_app`）
