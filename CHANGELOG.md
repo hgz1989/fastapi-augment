@@ -4,6 +4,54 @@
 
 ---
 
+## [0.1.5] — 2026-09-21
+
+### Added
+
+- **`common.app_discovery`** — 新增 FastAPI 应用发现模块：
+  - `discover_fastapi_apps` — 递归发现 `apps` 子包通过 `__all__` 导出的 FastAPI 应用，支持 `exclude`（模块名 / 导出名 / `module:name` 导入串三种标识），结果按模块名排序
+  - `FastAPIAppSpec` — 应用装载信息（模块 / 导出名 / 实例 / `import_string`）
+  - `verify_fastapi_app` — 校验 ASGI 应用导入串真实存在且为 FastAPI 实例
+- **Release 发布流程** — 新增 `.github/workflows/release.yml` 与配套脚本：
+  - 版本决策规则：无 tag 用代码版本 / 代码版本 > 最高 tag 用代码版本 / 否则以最高 tag 版本为准
+  - 自动同步 `VERSION` 与 `factory.py` 中 `create_app` 默认版本并提交
+  - 源码打包为 zip / tar.gz（排除 `.venv`、缓存、构建产物）
+  - 打包成功后才打 tag 并上传 GitHub Release，失败不留任何 tag/Release
+  - 支持 release（发布新版本）/ rebuild（重新打包指定版本）两种模式
+- **自动 lint** — 新增 `.github/workflows/lint.yml`，push / PR 自动运行 ruff
+- **ruff 配置** — `pyproject.toml` 新增 `[tool.ruff]` 规则集（含忽略项中文说明）
+- **`find_project_root()`** — 路径工具新增按特征文件（`pyproject.toml` / `.git`）自动定位项目根目录
+
+### Changed
+
+- **性能优化（8 项）**：
+  - `SessionFactory` — 缓存命中不再重复创建 sessionmaker
+  - `EngineManager.start()` — 幂等，重复启动直接返回；`dispose()` 增加 `_disposed` 状态与 `_ensure_active()` 防护
+  - `RepositoryBase._resolve_generic_model` — 改为 classmethod + `lru_cache`
+  - `query_parser._convert_value` — 缓存键去掉 `id(column.type)`（id 复用风险）
+  - `base_settings._build` — 按 `(cls, config_overrides)` 缓存子类配置
+  - `paginate` — 新增 `MAX_PAGE_SIZE = 1000` 上限，超限静默截断
+  - `DatabaseSettings._engine_key` — 改为 `cached_property`
+- **健壮性（10 项）**：
+  - `migrate` — 迁移 CLI 改用 Alembic Python API，失败统一抛 `RuntimeError`
+  - `logger.setup` — 移除 `force=True`，不再覆盖宿主日志配置
+  - `logger.handlers` — 月 / 年轮转改为时区感知
+  - `TooManyRequestsError` — 补回 `status_code` 参数
+  - `publish.yml` — 改用 `astral-sh/setup-uv@v6` + `uv sync --group dev`
+  - `actions/checkout` — 升级至 v7（安全强化，拦截 Pwn Request）
+- **代码风格批量优化**（ruff 全绿）：
+  - 59 个文件导入按规范重排（三类分组 / 模块名排序 / from 对象按首次调用顺序 / 括号块末项无逗号）
+  - `typing` → `collections.abc`（Sequence / Callable / AsyncGenerator / Mapping / Collection）
+  - `int | float` → `float` 注解简化
+  - `__all__` 恢复分组注释结构
+  - 清理未使用导入、`dict()` → 字面量、合并嵌套 `with`、`raise ... from None` 等
+
+### Fixed
+
+- **测试收集失败** — 重写 `tests/test_database_settings.py`（原草案引用不存在的拓扑设计，改为字段式配置全行为测试）
+
+---
+
 ## [0.1.4] — 2026-09-12
 
 ### Added
@@ -129,7 +177,8 @@
 | `middlewares/` | `RequestIdMiddleware`（ULID 格式），`ContextVar` 全链路传递 |
 | `openapi.py` | OpenAPI schema 自动清理 422 响应与验证错误模型 |
 
-[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.4...develop
+[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.5...develop
+[0.1.5]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.1...v0.1.2
