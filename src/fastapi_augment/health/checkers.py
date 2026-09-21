@@ -17,7 +17,7 @@ from .checker import (
     BaseChecker,
     CheckResult,
     STATUS_HEALTHY,
-    STATUS_UNHEALTHY,
+    STATUS_UNHEALTHY
 )
 
 if TYPE_CHECKING:

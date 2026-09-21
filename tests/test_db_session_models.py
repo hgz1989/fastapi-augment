@@ -3,23 +3,38 @@ db.sqlalchemy.session 模块测试 — SessionFactory
 db.sqlalchemy.model_base 模块测试 — ModelBase / ULID 生成
 db.sqlalchemy.mixins 模块测试 — 各混入类
 """
-import os
-import tempfile
 
-import pytest
 import pytest_asyncio
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
-from fastapi_augment.db.sqlalchemy.engine import NodeConfig, ClusterTopology, EngineManager
-from fastapi_augment.db.sqlalchemy.session import SessionFactory
-from fastapi_augment.db.sqlalchemy.model_base import ModelBase, _generate_ulid
-from fastapi_augment.db.sqlalchemy.mixins.timestamp import CreatedAtMixin, TimestampMixin
-from fastapi_augment.db.sqlalchemy.mixins.soft_delete import SoftDeleteMixin, SoftDeleteAuditMixin
-from fastapi_augment.db.sqlalchemy.mixins.audit import CreatedByMixin, UpdatedByMixin, AuditMixin
-
 from sqlalchemy import String
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
+
+from fastapi_augment.db.sqlalchemy.engine import (
+    ClusterTopology,
+    NodeConfig,
+    EngineManager
+)
+from fastapi_augment.db.sqlalchemy.mixins.audit import (
+    CreatedByMixin,
+    UpdatedByMixin,
+    AuditMixin
+)
+from fastapi_augment.db.sqlalchemy.mixins.soft_delete import (
+    SoftDeleteMixin,
+    SoftDeleteAuditMixin
+)
+from fastapi_augment.db.sqlalchemy.mixins.timestamp import (
+    TimestampMixin,
+    CreatedAtMixin
+)
+from fastapi_augment.db.sqlalchemy.model_base import (
+    ModelBase,
+    _generate_ulid
+)
+from fastapi_augment.db.sqlalchemy.session import (
+    SessionFactory
+)
 
 
 # ── 测试模型 ──────────────────────────────────────────────────────────
@@ -94,7 +109,8 @@ class TestSessionFactory:
         try:
             async with session_factory.transaction() as session:
                 session.add(SampleModel(name='will_rollback'))
-                raise ValueError('force rollback')
+                # 测试刻意在事务上下文内抛错以验证回滚
+                raise ValueError('force rollback')  # noqa: TRY301
         except ValueError:
             pass
 

@@ -88,3 +88,28 @@ version = { file = "VERSION" }
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9", "F",       # pycodestyle 基础子集 + pyflakes
+    "B", "UP", "SIM", "C4",      # bugbear / pyupgrade / 简化 / 集合字面量
+    "RET", "PLR1711", "TRY", "G", "BLE", "RUF",
+    "I", "DTZ", "PYI",
+]
+ignore = [
+    "I001",      # import 排序按《代码风格整理.md》人工维护（首次调用顺序 + 末项无逗号）
+    "RUF022",    # __all__ 按用途分组注释组织，可读性优于字母序
+    "RUF001",    # 中文代码库全角标点属正常书写，不视为混淆字符
+    "RUF002",
+    "RUF003",
+    "TRY003",    # 中文异常消息偏长，不强制抽象异常类
+    "G004",      # 与《代码风格整理.md》"统一使用 f-string" 规范冲突
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fastapi_augment"]

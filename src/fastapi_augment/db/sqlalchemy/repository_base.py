@@ -6,10 +6,19 @@
 from __future__ import annotations
 
 import typing
+from collections.abc import Sequence, Mapping
+from functools import lru_cache
 from math import ceil
-from typing import TypeVar, Generic, Sequence, Any, cast, Mapping
+from typing import TypeVar, Generic, cast, Any
 
-from sqlalchemy import ColumnElement, delete, exists, func, select, update
+from sqlalchemy import (
+    func,
+    exists,
+    select,
+    update,
+    delete,
+    ColumnElement
+)
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -17,6 +26,9 @@ from sqlalchemy.orm import InstrumentedAttribute
 from .model_base import ModelBase
 
 ModelT = TypeVar('ModelT', bound=ModelBase)
+
+# paginate 单页数量上限，防止调用方传入超大 size 拖垮数据库
+MAX_PAGE_SIZE: int = 1000
 
 
 class RepositoryBase(Generic[ModelT]):
@@ -65,8 +77,12 @@ class RepositoryBase(Generic[ModelT]):
 
         self.model = model
 
-    def _resolve_generic_model(self) -> type[ModelT]:
+    @classmethod
+    @lru_cache(maxsize=128)
+    def _resolve_generic_model(cls: type) -> type[ModelT]:
         """Walk ``__orig_bases__`` to find the concrete model type bound via ``Generic``.
+
+        使用 lru_cache 按子类缓存解析结果，避免每次实例化重复遍历基类
 
         Returns:
             The resolved model class.
@@ -75,12 +91,12 @@ class RepositoryBase(Generic[ModelT]):
             TypeError: If no model type can be inferred.
         """
         # noinspection PyUnresolvedReferences
-        for base in type(self).__orig_bases__:
+        for base in cls.__orig_bases__:
             args = typing.get_args(base)
             if args and isinstance(args[0], type) and issubclass(args[0], ModelBase):
                 return cast(type[ModelT], args[0])
         raise TypeError(
-            f'{type(self).__name__} must either pass a model class or '
+            f'{cls.__name__} must either pass a model class or '
             f'declare it as a generic parameter (e.g. RepositoryBase[User]).'
         )
 
@@ -244,7 +260,8 @@ class RepositoryBase(Generic[ModelT]):
         """
 
         page = max(1, page)
-        size = max(1, size)
+        # 上限保护：防止调用方传入超大 size 拖垮数据库
+        size = max(1, min(size, MAX_PAGE_SIZE))
 
         conditions = self._conditions(expressions, filters)
 
@@ -391,7 +408,8 @@ class RepositoryBase(Generic[ModelT]):
         attr = getattr(self.model, name, None)
 
         if not isinstance(attr, InstrumentedAttribute):
-            raise AttributeError(f'{self.model.__name__} has no mapped attribute {name!r}')
+            # 遵循 getattr 语义：缺失字段抛 AttributeError（有意为之，不改 TypeError）
+            raise AttributeError(f'{self.model.__name__} has no mapped attribute {name!r}')  # noqa: TRY004
 
         return attr
 

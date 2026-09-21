@@ -1,0 +1,119 @@
+# ============================================================
+# Release：测试检查 + 打包源码 + 打 tag + 上传 GitHub Release
+#
+# 流程：
+#   0. pytest + ruff 检查（任一失败则停止，不发布）
+#   1. 确定目标版本：release=无 tag 用代码版本 / 代码版本>tag 用代码版本 / 否则以 tag 版本为准；
+#      rebuild=使用指定 tag 重新打包
+#   2. 自动更新代码版本文件（VERSION / factory.py 的 create_app 默认版本）并提交
+#   3. 打包源码（zip + tar.gz）
+#   4. 打包成功后：打版本 tag 并推送、上传到 GitHub Release
+#   —— 打包失败不留下任何 tag/Release，重试不会跳版本号
+#
+# 触发方式：
+#   - 手动触发（workflow_dispatch）：release=发布新版本；rebuild=重新打包指定版本
+#
+# 产物：GitHub Release vX.Y.Z + 资产 fastapi_augment-X.Y.Z.zip / .tar.gz
+# ============================================================
+name: Create Release
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 操作类型（release=发布新版本；rebuild=重新打包指定版本）
+        type: choice
+        required: true
+        default: release
+        options:
+          - release
+          - rebuild
+      rebuild_tag:
+        description: 要重新打包的版本 tag（rebuild 时填写，如 v1.2.3）
+        type: string
+        required: false
+env:
+  # 项目名：同时是打包资产名前缀
+  APP_NAME: fastapi_augment
+# 同一时间只允许一个发布流程，防止并发读到同一旧版本号
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # 拉取全部历史与 tag
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv sync --group dev
+
+      # ---------- 检查：测试 + lint（任一失败则后续步骤不执行，不会发布）----------
+      - name: Run tests
+        run: uv run --frozen pytest -q
+
+      - name: Run lint
+        run: uvx ruff check src tests
+
+      # ---------- 解析目标版本（打 tag 挪到打包成功后）----------
+      - name: Resolve target version
+        id: resolve
+        run: |
+          if [ "${{ inputs.mode }}" = "rebuild" ]; then
+            python .github/scripts/release_version.py --mode rebuild --rebuild-tag "${{ inputs.rebuild_tag }}"
+          else
+            python .github/scripts/release_version.py --mode release
+          fi
+
+      # release 模式：代码版本与目标不一致时才更新并提交（rebuild 不修改代码）
+      - name: Update version files
+        if: steps.resolve.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION src/fastapi_augment/factory.py
+          git commit -m "release: 同步版本至 ${{ steps.resolve.outputs.final_version }}"
+          git push origin "$(git rev-parse --abbrev-ref HEAD)"
+          echo "已更新版本号文件并提交"
+
+      # rebuild 模式：检出目标 tag 对应代码重新打包
+      - name: Checkout rebuild tag
+        if: inputs.mode == 'rebuild'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.rebuild_tag }}
+
+      # ---------- 打包源码（打包成功后才打 tag；失败不留下任何 tag/Release）----------
+      - name: Package source
+        run: python .github/scripts/release_package.py "${{ steps.resolve.outputs.final_version }}"
+
+      # 打包成功后打 tag 并推送（仅 release 模式；tag 已存在则更新指向）
+      - name: Create or update tag
+        if: inputs.mode == 'release'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "v${{ steps.resolve.outputs.final_version }}"
+          git push origin "v${{ steps.resolve.outputs.final_version }}" --force
+          echo "打包成功，已更新 tag: v${{ steps.resolve.outputs.final_version }}"
+
+      - name: Create or update Release
+        run: |
+          VERSION="${{ steps.resolve.outputs.final_version }}"
+          ASSETS="dist-release/${{ env.APP_NAME }}-${VERSION}.zip dist-release/${{ env.APP_NAME }}-${VERSION}.tar.gz"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" $ASSETS --clobber
+          else
+            gh release create "v${VERSION}" $ASSETS --title "Release v${VERSION}" --generate-notes
+          fi
+          echo "Release v${VERSION} 已就绪，资产: $ASSETS"

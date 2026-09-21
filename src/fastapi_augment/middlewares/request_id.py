@@ -58,8 +58,7 @@ class RequestIdMiddleware(BaseASGIMiddleware):
         if not request_id:
             request_id = str(uuid4())
 
-        token = set_request_id(request_id)
-        return token
+        return set_request_id(request_id)
 
     async def wrap_send(self, message: Message) -> Message:
         """注入响应头 X‑Request‑Id"""

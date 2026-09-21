@@ -5,7 +5,10 @@ import pytest
 from fastapi import FastAPI, APIRouter
 from starlette.testclient import TestClient
 
-from fastapi_augment.factory import create_app, _resolve_registries
+from fastapi_augment.factory import (
+    create_app,
+    _resolve_registries
+)
 from fastapi_augment.lifespan import HookRegistry
 
 

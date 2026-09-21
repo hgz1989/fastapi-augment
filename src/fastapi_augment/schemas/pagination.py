@@ -5,8 +5,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import ceil
-from typing import Generic, Sequence
+from typing import Generic
 
 from pydantic import Field
 
@@ -30,7 +31,7 @@ class PageData(SchemaBase, Generic[T]):
             page: int,
             size: int,
             total: int
-    ) -> 'PageData[T]':
+    ) -> PageData[T]:
         """构建分页对象，自动计算总页数
 
         Args:

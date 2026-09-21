@@ -4,26 +4,28 @@ common.exceptions 模块测试 — 业务异常类
 import pytest
 from starlette import status
 
+from fastapi_augment.common.constants import (
+    DEFAULT_ERR_MSG
+)
 from fastapi_augment.common.exceptions import (
     BaseHttpError,
-    BadRequestError,
-    UnauthorizedError,
     PaymentRequiredError,
-    ForbiddenError,
-    NotFoundError,
     MethodNotAllowedError,
     NotAcceptableError,
     RequestTimeoutError,
-    ConflictError,
     GoneError,
     PreconditionFailedError,
     PayloadTooLargeError,
     URITooLongError,
     UnsupportedMediaTypeError,
     LockedError,
-    TooManyRequestsError,
+    BadRequestError,
+    UnauthorizedError,
+    ForbiddenError,
+    NotFoundError,
+    ConflictError,
+    TooManyRequestsError
 )
-from fastapi_augment.common.constants import DEFAULT_ERR_MSG
 
 
 # ── BaseHttpError ─────────────────────────────────────────────────────
@@ -131,3 +133,13 @@ class TestTooManyRequestsError:
     def test_custom_detail(self):
         err = TooManyRequestsError(detail='请求太频繁')
         assert err.detail == '请求太频繁'
+
+    def test_custom_status_code(self):
+        """status_code 参数可覆盖子类默认的 429"""
+        err = TooManyRequestsError(status_code=400, detail='受限')
+        assert err.status_code == 400
+        assert err.detail == '受限'
+
+    def test_status_code_defaults_to_429(self):
+        err = TooManyRequestsError()
+        assert err.status_code == 429

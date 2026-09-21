@@ -4,8 +4,10 @@
 @Description    : 多进程安全的日志轮转处理器，支持秒/分/时/天/周及自定义月/年轮转
 """
 import logging
-from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
+from datetime import UTC, datetime
+from logging.handlers import (
+    TimedRotatingFileHandler
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -49,18 +51,20 @@ class MonthlyRotatingFileHandler(MultiProcessTimedRotatingFileHandler):
     def computeRollover(self, currentTime: int) -> int:
         """计算下次轮转时间（下月1日00:00:00）
 
+        使用带时区的时间计算，避免轮转节点依赖服务器本地时区设置
+
         Args:
             currentTime: 当前UNIX时间戳
 
         Returns:
             下次轮转的UNIX时间戳
         """
-        dt = datetime.fromtimestamp(currentTime)
+        dt = datetime.fromtimestamp(currentTime, tz=UTC).astimezone()
 
         if dt.month == 12:
-            next_month = datetime(dt.year + 1, 1, 1)
+            next_month = datetime(dt.year + 1, 1, 1, tzinfo=dt.tzinfo)
         else:
-            next_month = datetime(dt.year, dt.month + 1, 1)
+            next_month = datetime(dt.year, dt.month + 1, 1, tzinfo=dt.tzinfo)
 
         return int(next_month.timestamp())
 
@@ -81,12 +85,14 @@ class YearlyRotatingFileHandler(MultiProcessTimedRotatingFileHandler):
     def computeRollover(self, currentTime: int) -> int:
         """计算下次轮转时间（下一年1月1日00:00:00）
 
+        使用带时区的时间计算，避免轮转节点依赖服务器本地时区设置
+
         Args:
             currentTime: 当前UNIX时间戳
 
         Returns:
             下次轮转的UNIX时间戳
         """
-        dt = datetime.fromtimestamp(currentTime)
-        next_year = datetime(dt.year + 1, 1, 1)
+        dt = datetime.fromtimestamp(currentTime, tz=UTC).astimezone()
+        next_year = datetime(dt.year + 1, 1, 1, tzinfo=dt.tzinfo)
         return int(next_year.timestamp())

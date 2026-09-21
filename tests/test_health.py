@@ -3,22 +3,22 @@ health 模块测试 — 健康检查包
 """
 import time
 
-import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from fastapi_augment.health import (
-    BaseChecker,
     CheckResult,
-    HealthResponse,
-    AppChecker,
-    DatabaseChecker,
-    create_health_router,
     STATUS_HEALTHY,
     STATUS_DEGRADED,
     STATUS_UNHEALTHY,
+    AppChecker,
+    DatabaseChecker,
+    create_health_router,
+    BaseChecker
 )
-from fastapi_augment.health.checker import _worst_status
+from fastapi_augment.health.checker import (
+    _worst_status
+)
 
 
 # ── 模型与工具 ─────────────────────────────────────────────────────────

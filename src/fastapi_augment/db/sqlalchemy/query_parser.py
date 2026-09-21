@@ -39,15 +39,26 @@
 值中包含 ``:`` ``=`` 等字符时不受影响，因为分隔符只在第一个匹配处切分
 所有解析函数均通过模型字段白名单校验，防止注入
 """
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Collection, Sequence
+from typing import Any
 
-from fastapi_augment.db.sqlalchemy import ModelBase
-from sqlalchemy import ColumnElement, and_, asc, desc, or_
-from sqlalchemy.sql.elements import UnaryExpression
+from sqlalchemy import (
+    ColumnElement,
+    and_,
+    or_,
+    desc,
+    asc
+)
+from sqlalchemy.sql.elements import (
+    UnaryExpression
+)
 
 from fastapi_augment.common import BadRequestError
+from fastapi_augment.db.sqlalchemy import (
+    ModelBase
+)
 
 
 def _escape_like(value: str) -> str:
@@ -82,15 +93,13 @@ def _get_column(model: type[ModelBase], field: str) -> Any:
     return column
 
 
-@lru_cache(maxsize=512)
-def _convert_value(_type_id: int, python_type: type, value: str) -> Any:
+def _convert_value(python_type: type, value: str) -> Any:
     """根据列的 Python 类型将字符串值转换为对应类型
 
-    使用 lru_cache 缓存，避免无界增长，
-    缓存键为 (type_id, python_type, value) 元组
+    转换本身开销极小（一次 ``python_type(value)`` 调用），无需缓存；
+    原先基于 ``id(column.type)`` 的缓存键存在 id 复用风险，已移除
 
     Args:
-        _type_id: 列类型对象的 id，用于区分不同列
         python_type: 列的 Python 类型
         value: 原始字符串值
 
@@ -157,7 +166,7 @@ def parse_lookup(
             raise BadRequestError(detail=f'filter 字段 {field} 的 value 不能为空')
 
         column = _get_column(model, field)
-        conds.append(column == _convert_value(id(column.type), column.type.python_type, value))
+        conds.append(column == _convert_value(column.type.python_type, value))
 
     if not conds:
         raise BadRequestError(detail='filter 至少需要一个有效查询条件')
@@ -287,27 +296,27 @@ class _WhereParser:
             BadRequestError: between 格式错误
         """
         if op == '==':
-            return column == _convert_value(id(column.type), column.type.python_type, raw_value)
+            return column == _convert_value(column.type.python_type, raw_value)
         if op == '!=':
-            return column != _convert_value(id(column.type), column.type.python_type, raw_value)
+            return column != _convert_value(column.type.python_type, raw_value)
         if op == '~=':
             return column.ilike(f'%{_escape_like(raw_value)}%')
         if op == '>':
-            return column > _convert_value(id(column.type), column.type.python_type, raw_value)
+            return column > _convert_value(column.type.python_type, raw_value)
         if op == '>=':
-            return column >= _convert_value(id(column.type), column.type.python_type, raw_value)
+            return column >= _convert_value(column.type.python_type, raw_value)
         if op == '<':
-            return column < _convert_value(id(column.type), column.type.python_type, raw_value)
+            return column < _convert_value(column.type.python_type, raw_value)
         if op == '<=':
-            return column <= _convert_value(id(column.type), column.type.python_type, raw_value)
+            return column <= _convert_value(column.type.python_type, raw_value)
 
         # between: value 应为 start~end
         parts = raw_value.split('~')
         if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
             raise BadRequestError(detail=f'between 格式错误，应为 field~start~end: {raw_value}')
         return column.between(
-            _convert_value(id(column.type), column.type.python_type, parts[0].strip()),
-            _convert_value(id(column.type), column.type.python_type, parts[1].strip()),
+            _convert_value(column.type.python_type, parts[0].strip()),
+            _convert_value(column.type.python_type, parts[1].strip()),
         )
 
     def _match(self, ch: str) -> bool:

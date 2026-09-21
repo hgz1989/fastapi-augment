@@ -2,7 +2,10 @@
 config.base_settings 模块测试 — AugmentBaseSettings.from_env() / from_dotenv() / from_json() 配置管理
 """
 import pytest
-from fastapi_augment.config.base_settings import AugmentBaseSettings
+
+from fastapi_augment.config.base_settings import (
+    AugmentBaseSettings
+)
 
 
 # ── 测试用配置类 ──────────────────────────────────────────────────────
@@ -57,6 +60,14 @@ class TestAugmentBaseSettings:
     def test_from_env_returns_correct_type(self):
         cfg = Settings.from_env(debug=True)
         assert isinstance(cfg, Settings)
+
+    def test_from_env_subclass_cached(self):
+        """相同配置参数复用缓存的动态子类，不同参数创建不同子类"""
+        cls1 = type(Settings.from_env(env_prefix='P1_'))
+        cls2 = type(Settings.from_env(env_prefix='P1_'))
+        cls3 = type(Settings.from_env(env_prefix='P2_'))
+        assert cls1 is cls2
+        assert cls1 is not cls3
 
     def test_env_override_beats_default(self, monkeypatch: pytest.MonkeyPatch):
         """环境变量优先级高于默认值"""

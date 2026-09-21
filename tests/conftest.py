@@ -4,7 +4,11 @@
 import pytest
 from fastapi import FastAPI
 
-from fastapi_augment.lifespan import HookRegistry, core_registry, clear_hooks
+from fastapi_augment.lifespan import (
+    core_registry,
+    clear_hooks,
+    HookRegistry
+)
 
 
 @pytest.fixture(autouse=True)

@@ -1,13 +1,19 @@
 """
 db.sqlalchemy.model_base 模块测试 — ModelBase ULID 主键与基础行为
 """
-import pytest
 import pytest_asyncio
 from sqlalchemy import String
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fastapi_augment.db.sqlalchemy.model_base import ModelBase, _generate_ulid
+from fastapi_augment.db.sqlalchemy.model_base import (
+    ModelBase,
+    _generate_ulid
+)
 
 
 # ── 测试模型 ──────────────────────────────────────────────────────────

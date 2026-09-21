@@ -10,7 +10,10 @@ from dataclasses import dataclass, field
 from itertools import cycle
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    create_async_engine
+)
 
 
 # ── Configuration Models ─────────────────────────────────────────────────────
@@ -135,6 +138,7 @@ class EngineManager:
         self._write_key: str = 'primary'
         self._read_keys: list[str] = []
         self._read_cycle: cycle[str] | None = None
+        self._disposed: bool = False
         self._lock = threading.Lock()
 
     # ── Lifecycle ────────────────────────────────────────────────────────
@@ -142,9 +146,16 @@ class EngineManager:
     def start(self) -> EngineManager:
         """Create all engines based on the topology. Returns *self* for chaining.
 
+        幂等：已启动时直接返回自身，不会重建引擎导致旧连接池泄漏；
+        需要重新构建拓扑时，先 ``dispose()`` 再 ``start()``
+
         Returns:
             The engine manager instance itself, for method chaining.
         """
+        if self._engines:
+            return self
+
+        self._disposed = False
         self._engines[self._write_key] = self._create_engine(self._topology.primary)
 
         read_sources = self._topology.get_all_read_sources()
@@ -159,16 +170,26 @@ class EngineManager:
         return self
 
     async def dispose(self) -> None:
-        """Dispose all engine connection pools gracefully."""
+        """Dispose all engine connection pools gracefully.
+
+        释放后再次访问引擎（write_engine / next_read_engine / get_engine）会抛出
+        RuntimeError，避免裸 KeyError；``dispose()`` 后可再次 ``start()`` 重建
+        """
         with self._lock:
             engines = list(self._engines.values())
             self._engines.clear()
             self._read_keys.clear()
             self._read_cycle = None
+            self._disposed = True
         for engine in engines:
             await engine.dispose()
 
     # ── Engine Access ────────────────────────────────────────────────────
+
+    def _ensure_active(self) -> None:
+        """检查引擎管理器是否仍处于活动状态"""
+        if self._disposed:
+            raise RuntimeError('EngineManager 已 dispose，请先重新 start() 再访问引擎')
 
     @property
     def write_engine(self) -> AsyncEngine:
@@ -176,7 +197,11 @@ class EngineManager:
 
         Returns:
             The primary async SQLAlchemy engine.
+
+        Raises:
+            RuntimeError: 管理器已 dispose 后访问
         """
+        self._ensure_active()
         return self._engines[self._write_key]
 
     def next_read_engine(self) -> AsyncEngine:
@@ -186,7 +211,11 @@ class EngineManager:
 
         Returns:
             An async SQLAlchemy engine.
+
+        Raises:
+            RuntimeError: 管理器已 dispose 后访问
         """
+        self._ensure_active()
         with self._lock:
             if self._read_cycle is not None:
                 return self._engines[next(self._read_cycle)]
@@ -202,8 +231,10 @@ class EngineManager:
             An async SQLAlchemy engine.
 
         Raises:
+            RuntimeError: 管理器已 dispose 后访问
             KeyError: If the engine key does not exist.
         """
+        self._ensure_active()
         engine = self._engines.get(name)
         if engine is None:
             available = ', '.join(sorted(self._engines)) or '(none)'

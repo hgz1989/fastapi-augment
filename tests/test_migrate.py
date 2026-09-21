@@ -1,14 +1,15 @@
 """
 db.sqlalchemy.migrate 模块测试 — 迁移 CLI 与工具函数
 """
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from fastapi_augment.db.sqlalchemy.migrate import (
     init_project,
     _resolve_alembic_config,
-    cli_main,
+    cli_main
 )
 
 
@@ -70,11 +71,57 @@ class TestCliMain:
         assert (tmp_path / 'alembic.ini').exists()
 
     def test_upgrade_without_ini_exits(self, tmp_path: Path):
-        with patch('sys.argv', ['migrate', 'upgrade', '--project-dir', str(tmp_path)]):
-            with pytest.raises(SystemExit):
-                cli_main()
+        with (
+            patch('sys.argv', ['migrate', 'upgrade', '--project-dir', str(tmp_path)]),
+            pytest.raises(SystemExit)
+        ):
+            cli_main()
 
     def test_generate_without_ini_exits(self, tmp_path: Path):
-        with patch('sys.argv', ['migrate', 'generate', '--message', 'test', '--models', 'models', '--project-dir', str(tmp_path)]):
-            with pytest.raises(SystemExit):
-                cli_main()
+        with (
+            patch('sys.argv', ['migrate', 'generate', '--message', 'test', '--models', 'models', '--project-dir', str(tmp_path)]),
+            pytest.raises(SystemExit)
+        ):
+            cli_main()
+
+
+# ── generate_migration ─────────────────────────────────────────────
+
+class TestGenerateMigration:
+
+    def test_uses_command_api_and_restores_env(self, tmp_path: Path):
+        """统一走 alembic command API，且环境变量执行后恢复"""
+        import os
+
+        from fastapi_augment.db.sqlalchemy.migrate import generate_migration
+
+        init_project('sqlite:///test.db', project_dir=tmp_path)
+        with patch('fastapi_augment.db.sqlalchemy.migrate.command.stamp') as mock_stamp, \
+             patch('fastapi_augment.db.sqlalchemy.migrate.command.revision') as mock_revision, \
+             patch.dict(os.environ, {'FASTAPI_AUGMENT_MODELS': 'old.models'}, clear=False):
+            generate_migration('add table', 'app.models', project_dir=tmp_path)
+            mock_stamp.assert_called_once()
+            mock_revision.assert_called_once()
+            assert os.environ['FASTAPI_AUGMENT_MODELS'] == 'old.models'
+
+    def test_removes_env_when_absent(self, tmp_path: Path):
+        """原环境无变量时，执行完彻底移除"""
+        import os
+
+        from fastapi_augment.db.sqlalchemy.migrate import generate_migration
+
+        init_project('sqlite:///test.db', project_dir=tmp_path)
+        os.environ.pop('FASTAPI_AUGMENT_MODELS', None)
+        with patch('fastapi_augment.db.sqlalchemy.migrate.command.stamp'), \
+             patch('fastapi_augment.db.sqlalchemy.migrate.command.revision'):
+            generate_migration('add table', 'app.models', project_dir=tmp_path)
+            assert 'FASTAPI_AUGMENT_MODELS' not in os.environ
+
+    def test_stamp_failure_raises_runtime_error(self, tmp_path: Path):
+        """stamp 失败不再静默，统一抛 RuntimeError"""
+        from fastapi_augment.db.sqlalchemy.migrate import generate_migration
+
+        init_project('sqlite:///test.db', project_dir=tmp_path)
+        with patch('fastapi_augment.db.sqlalchemy.migrate.command.stamp', side_effect=RuntimeError('db down')), \
+             pytest.raises(RuntimeError, match='生成迁移失败'):
+            generate_migration('add table', 'app.models', project_dir=tmp_path)

@@ -6,7 +6,7 @@ import pytest
 from fastapi_augment.db.sqlalchemy.engine import (
     NodeConfig,
     ClusterTopology,
-    EngineManager,
+    EngineManager
 )
 
 
@@ -216,3 +216,33 @@ class TestEngineManager:
         result = manager.start()
         assert result is manager
         await manager.dispose()
+
+    async def test_start_idempotent(self):
+        """重复 start() 幂等：不会重建引擎导致旧连接池泄漏"""
+        topology = ClusterTopology(
+            primary=NodeConfig(url='sqlite+aiosqlite:///test.db')
+        )
+        manager = EngineManager(topology).start()
+        first = manager.write_engine
+        try:
+            result = manager.start()
+            assert result is manager
+            assert manager.write_engine is first
+            assert len(manager.engines) == 1
+        finally:
+            await manager.dispose()
+
+    async def test_access_after_dispose_raises(self):
+        """dispose 后再访问引擎抛出 RuntimeError 而非裸 KeyError"""
+        topology = ClusterTopology(
+            primary=NodeConfig(url='sqlite+aiosqlite:///test.db')
+        )
+        manager = EngineManager(topology).start()
+        await manager.dispose()
+
+        with pytest.raises(RuntimeError, match='dispose'):
+            _ = manager.write_engine
+        with pytest.raises(RuntimeError, match='dispose'):
+            _ = manager.next_read_engine()
+        with pytest.raises(RuntimeError, match='dispose'):
+            _ = manager.get_engine('primary')

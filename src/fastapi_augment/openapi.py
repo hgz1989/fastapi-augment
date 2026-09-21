@@ -44,27 +44,27 @@ def configure_openapi_schema(
 
         try:
             # 兼容低版本fastapi，过滤不存在的参数
-            kwargs = dict(
-                title=app.title,
-                version=app.version,
-                openapi_version=app.openapi_version,
-                summary=app.summary,
-                description=app.description,
-                routes=app.routes,
-                tags=app.openapi_tags,
-                servers=app.servers,
-                terms_of_service=app.terms_of_service,
-                contact=app.contact,
-                license_info=app.license_info,
-            )
+            kwargs = {
+                'title': app.title,
+                'version': app.version,
+                'openapi_version': app.openapi_version,
+                'summary': app.summary,
+                'description': app.description,
+                'routes': app.routes,
+                'tags': app.openapi_tags,
+                'servers': app.servers,
+                'terms_of_service': app.terms_of_service,
+                'contact': app.contact,
+                'license_info': app.license_info,
+            }
             # separate_input_output_schemas 0.95+才存在
             if hasattr(app, 'separate_input_output_schemas'):
                 kwargs['separate_input_output_schemas'] = app.separate_input_output_schemas
 
             openapi_schema = get_openapi(**kwargs)
-        except Exception as exc:
+        except Exception:
             # 生成openapi异常，不阻断服务启动；记录完整堆栈便于排查
-            _logger.exception('Generate openapi schema failed: %s', exc)
+            _logger.exception('Generate openapi schema failed')
             return None
 
         components = openapi_schema.setdefault('components', {})

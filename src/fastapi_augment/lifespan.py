@@ -7,17 +7,19 @@
                   - 每个注册表独立管理优先级、超时、异常策略
 """
 import asyncio
+from collections.abc import (
+    Callable,
+    AsyncGenerator,
+    Sequence
+)
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from inspect import signature, iscoroutinefunction
+from inspect import iscoroutinefunction, signature
 from logging import getLogger, Logger
 from typing import (
     runtime_checkable,
     Protocol,
-    overload,
-    Callable,
-    AsyncGenerator,
-    Sequence,
+    overload
 )
 
 from fastapi import FastAPI
@@ -78,7 +80,7 @@ class HookRegistry:
         _logger: 实例日志器
     """
 
-    __slots__ = ('_startup_hooks', '_shutdown_hooks', '_startup_seen', '_shutdown_seen', '_logger')
+    __slots__ = ('_logger', '_shutdown_hooks', '_shutdown_seen', '_startup_hooks', '_startup_seen')
 
     def __init__(self, logger: Logger | None = None):
         """初始化一个新的注册表实例，所有钩子列表为空"""
@@ -93,7 +95,7 @@ class HookRegistry:
             func: HookFunc,
             priority: int = DEFAULT_PRIORITY,
             abort_on_exception: bool = STARTUP_ABORT_ON_EXCEPTION,
-            timeout: int | float | None = None,
+            timeout: float | None = None,
     ) -> None:
         """注册启动钩子
 
@@ -118,7 +120,7 @@ class HookRegistry:
             func: HookFunc,
             priority: int = DEFAULT_PRIORITY,
             abort_on_exception: bool = SHUTDOWN_ABORT_ON_EXCEPTION,
-            timeout: int | float | None = None,
+            timeout: float | None = None,
     ) -> None:
         """注册关闭钩子
 
@@ -147,7 +149,7 @@ class HookRegistry:
             *,
             priority: int = DEFAULT_PRIORITY,
             abort_on_exception: bool = STARTUP_ABORT_ON_EXCEPTION,
-            timeout: int | float | None = None,
+            timeout: float | None = None,
     ) -> Callable[[HookFunc], HookFunc]: ...
 
     def on_startup(
@@ -156,7 +158,7 @@ class HookRegistry:
             *,
             priority: int = DEFAULT_PRIORITY,
             abort_on_exception: bool = STARTUP_ABORT_ON_EXCEPTION,
-            timeout: int | float | None = None,
+            timeout: float | None = None,
     ) -> Callable[[HookFunc], HookFunc] | HookFunc:
         """启动钩子装饰器
 
@@ -188,7 +190,7 @@ class HookRegistry:
             *,
             priority: int = DEFAULT_PRIORITY,
             abort_on_exception: bool = SHUTDOWN_ABORT_ON_EXCEPTION,
-            timeout: int | float | None = None,
+            timeout: float | None = None,
     ) -> Callable[[HookFunc], HookFunc]: ...
 
     def on_shutdown(
@@ -197,7 +199,7 @@ class HookRegistry:
             *,
             priority: int = DEFAULT_PRIORITY,
             abort_on_exception: bool = SHUTDOWN_ABORT_ON_EXCEPTION,
-            timeout: int | float | None = None,
+            timeout: float | None = None,
     ) -> Callable[[HookFunc], HookFunc] | HookFunc:
         """关闭钩子装饰器
 
@@ -275,7 +277,7 @@ class HookRegistry:
             func: HookFunc,
             priority: int,
             abort_on_exception: bool,
-            timeout: int | float | None,
+            timeout: float | None,
             reverse_sort: bool,
     ) -> None:
         """通用注册方法，供启动/关闭钩子复用
@@ -329,17 +331,19 @@ class HookRegistry:
                     await asyncio.wait_for(coro, timeout=timeout)
                 else:
                     await coro
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # TimeoutError 仅在 wait_for 分支触发，此处 timeout 必不为 None
                 assert timeout is not None
-                self._logger.error(
+                # 超时不记录堆栈，仅输出时长信息（刻意不用 exception）
+                self._logger.error(  # noqa: TRY400
                     f'[生命周期钩子执行超时] {name}: 超过 {timeout}s',
                     exc_info=False
                 )
                 if item.abort_on_exception:
-                    raise RuntimeError(f'[启动/关闭终止：钩子 {name} 执行超时]')
+                    # 原始 TimeoutError 已由日志说明，无需保留异常链
+                    raise RuntimeError(f'[启动/关闭终止：钩子 {name} 执行超时]') from None
             except Exception as e:
-                self._logger.error(f'[生命周期钩子执行失败] {name}', exc_info=True)
+                self._logger.exception(f'[生命周期钩子执行失败] {name}')
                 if item.abort_on_exception:
                     raise RuntimeError(f'[启动/关闭终止：钩子 {name} 异常]') from e
 
@@ -353,10 +357,7 @@ class HookRegistry:
         Returns:
             格式化后的字符串，如 'func_name(priority=50, abort=True, timeout=None)'
         """
-        if item.timeout is not None:
-            timeout_str = f'{item.timeout}s'
-        else:
-            timeout_str = 'None'
+        timeout_str = f'{item.timeout}s' if item.timeout is not None else 'None'
         return (
             f'{item.func.__name__}(priority={item.priority}, '
             f'abort={item.abort_on_exception}, timeout={timeout_str})'

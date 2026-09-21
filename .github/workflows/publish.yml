@@ -13,17 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
 
       - name: Install dependencies
-        run: pip install -e '.[standard]' && pip install pytest pytest-asyncio aiosqlite httpx
+        run: uv sync --group dev
+
+      - name: Run lint
+        run: uvx ruff check src tests
 
       - name: Run tests
-        run: pytest -q
+        run: uv run pytest -q
 
   publish:
     needs: test

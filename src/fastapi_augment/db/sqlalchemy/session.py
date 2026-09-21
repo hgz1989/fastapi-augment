@@ -6,14 +6,15 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any
 from weakref import WeakKeyDictionary
 
 from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
     AsyncEngine,
-    AsyncSession,
-    async_sessionmaker
+    AsyncSession
 )
 
 from .engine import EngineManager
@@ -103,15 +104,16 @@ class SessionFactory:
         read_engine = self._manager.next_read_engine()
 
         with self._lock:
-            factory = self._read_factories.setdefault(
-                read_engine,
-                async_sessionmaker(
+            factory = self._read_factories.get(read_engine)
+            if factory is None:
+                # 先查缓存再创建，避免 setdefault 在命中缓存时仍白建 factory
+                factory = async_sessionmaker(
                     bind=read_engine,
                     class_=AsyncSession,
                     expire_on_commit=self._expire_on_commit,
                     **self._session_kwargs,
-                ),
-            )
+                )
+                self._read_factories[read_engine] = factory
 
         async with factory() as session:
             yield session

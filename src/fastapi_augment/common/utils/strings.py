@@ -6,7 +6,7 @@
 import json
 import random
 import string
-from typing import Any, Protocol
+from typing import Protocol, Any
 
 
 # ── 类型定义 ──
@@ -178,7 +178,7 @@ def json_load(fp: SupportsReadBytes) -> Any:
     """
     try:
         raw = fp.read()
-    except (OSError, IOError) as e:
+    except OSError as e:
         raise OSError(f'文件读取失败: {e}') from e
     if ORJSON_INSTALLED:
         try:

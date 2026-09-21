@@ -1,13 +1,12 @@
 """
 config 模块测试 — AugmentBaseSettings 配置管理
 """
-import os
-from pathlib import Path
 
-import pytest
 from pydantic_settings import SettingsConfigDict
 
-from fastapi_augment.config import AugmentBaseSettings
+from fastapi_augment.config import (
+    AugmentBaseSettings
+)
 
 
 # ── from_env() 类方法 ───────────────────────────────────────────────

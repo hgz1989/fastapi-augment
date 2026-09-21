@@ -1,17 +1,32 @@
 """
 db.sqlalchemy.query_parser 模块测试
 """
-import pytest
 from datetime import datetime
-from sqlalchemy import Integer, String, Boolean, DateTime
+
+import pytest
+from sqlalchemy import (
+    String,
+    Integer,
+    Boolean,
+    DateTime
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fastapi_augment.common.exceptions import BadRequestError
-from fastapi_augment.db.sqlalchemy.model_base import ModelBase
+from fastapi_augment.common.exceptions import (
+    BadRequestError
+)
+from fastapi_augment.db.sqlalchemy.model_base import (
+    ModelBase
+)
 from fastapi_augment.db.sqlalchemy.query_parser import (
-    _escape_like, _get_column, _convert_value,
-    parse_lookup, parse_where, parse_keyword,
-    parse_sort, build_query_expressions,
+    _escape_like,
+    _get_column,
+    _convert_value,
+    parse_lookup,
+    parse_where,
+    parse_keyword,
+    parse_sort,
+    build_query_expressions
 )
 
 
@@ -51,24 +66,24 @@ class TestGetColumn:
 
 class TestConvertValue:
     def test_bool_true(self):
-        assert _convert_value(1, bool, 'true') is True
-        assert _convert_value(2, bool, '1') is True
+        assert _convert_value(bool, 'true') is True
+        assert _convert_value(bool, '1') is True
 
     def test_bool_false(self):
-        assert _convert_value(3, bool, 'false') is False
+        assert _convert_value(bool, 'false') is False
 
     def test_int(self):
-        assert _convert_value(10, int, '42') == 42
+        assert _convert_value(int, '42') == 42
 
     def test_str(self):
-        assert _convert_value(20, str, 'hello') == 'hello'
+        assert _convert_value(str, 'hello') == 'hello'
 
     def test_datetime(self):
-        dt = _convert_value(30, datetime, '2026-01-15T10:30:00')
+        dt = _convert_value(datetime, '2026-01-15T10:30:00')
         assert isinstance(dt, datetime)
 
     def test_invalid_returns_raw(self):
-        assert _convert_value(99, int, 'not_a_number') == 'not_a_number'
+        assert _convert_value(int, 'not_a_number') == 'not_a_number'
 
 
 class TestParseLookup:
@@ -238,7 +253,7 @@ class TestBuildQueryExpressions:
         assert len(exprs) == 0 and len(order) == 0
 
     def test_q_without_q_field(self):
-        exprs, order = build_query_expressions(SampleModel, q='alice')
+        exprs, _ = build_query_expressions(SampleModel, q='alice')
         assert len(exprs) == 0
 
     def test_invalid_where_raises(self):

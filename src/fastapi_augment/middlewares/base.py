@@ -5,7 +5,13 @@
 """
 from contextvars import Token
 
-from starlette.types import ASGIApp, Scope, Receive, Send, Message
+from starlette.types import (
+    ASGIApp,
+    Scope,
+    Message,
+    Receive,
+    Send
+)
 
 
 class BaseASGIMiddleware:
@@ -29,9 +35,9 @@ class BaseASGIMiddleware:
         Returns:
             ContextVar token或None
         """
-        pass
+        return None
 
-    async def wrap_send(self, message: Message) -> Message:  # noqa: no-self-use
+    async def wrap_send(self, message: Message) -> Message:
         """http.response.start消息钩子，可以修改headers等
 
         返回修改后的message对象
@@ -52,8 +58,9 @@ class BaseASGIMiddleware:
 
         Args:
             token: ContextVar token或None
+
+        空实现：子类按需覆盖
         """
-        pass
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         scope_type = scope['type']
