@@ -3,7 +3,7 @@
 @CreateDate     : 2026/9/4
 @Description    : 通用工具函数（路径、字符串、JSON 序列化）
 """
-from .paths import get_root_dir
+from .paths import find_project_root, get_root_dir
 from .strings import (
     SupportsWriteStr,
     SupportsReadBytes,
@@ -18,6 +18,7 @@ from .strings import (
 
 __all__ = [
     # paths
+    'find_project_root',
     'get_root_dir',
     # strings
     'SupportsWriteStr',

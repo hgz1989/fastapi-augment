@@ -12,7 +12,7 @@ from .checker import (
     HealthResponse,
     STATUS_HEALTHY,
     STATUS_DEGRADED,
-    STATUS_UNHEALTHY,
+    STATUS_UNHEALTHY
 )
 from .checkers import AppChecker, DatabaseChecker
 from .router import create_health_router
@@ -30,5 +30,5 @@ __all__ = [
     'AppChecker',
     'DatabaseChecker',
     # 路由工厂
-    'create_health_router',
+    'create_health_router'
 ]

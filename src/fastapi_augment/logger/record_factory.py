@@ -6,7 +6,9 @@
 import logging
 from typing import Any
 
-from ..middlewares.request_id import request_id_ctx_var
+from ..middlewares.request_id import (
+    request_id_ctx_var
+)
 
 # 保存原始工厂
 _old_factory = logging.getLogRecordFactory()

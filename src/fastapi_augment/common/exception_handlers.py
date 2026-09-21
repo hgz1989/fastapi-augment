@@ -10,7 +10,9 @@ from __future__ import annotations
 from logging import getLogger
 
 from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import (
+    RequestValidationError
+)
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.requests import Request

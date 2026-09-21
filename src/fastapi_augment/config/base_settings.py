@@ -7,16 +7,17 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pydantic_settings import (
-    SettingsConfigDict,
     PydanticBaseSettingsSource,
     JsonConfigSettingsSource,
     YamlConfigSettingsSource,
     TomlConfigSettingsSource,
-    BaseSettings
+    BaseSettings,
+    SettingsConfigDict
 )
 
 # SettingsConfigDict 所有可用键，用于区分配置参数和模型字段值
@@ -28,6 +29,9 @@ _FILE_SOURCE_MAP: dict[str, type[PydanticBaseSettingsSource]] = {
     'yaml_file': YamlConfigSettingsSource,
     'toml_file': TomlConfigSettingsSource,
 }
+
+# 动态子类缓存：按 (原类, config_overrides) 复用子类，避免重复 type() 累积类对象
+_SUBCLASS_CACHE: dict[tuple[type, frozenset[tuple[str, Any]]], type] = {}
 
 
 class AugmentBaseSettings(BaseSettings):
@@ -115,7 +119,12 @@ class AugmentBaseSettings(BaseSettings):
                     cls._make_customise_sources(file_source_keys)
                 )
 
-            sub_cls = type(f'{cls.__name__}__env', (cls,), class_attrs)
+            # 按 (原类, 配置覆盖) 缓存动态子类，避免重复创建累积类对象
+            cache_key = (cls, frozenset(config_overrides.items()))
+            sub_cls = _SUBCLASS_CACHE.get(cache_key)
+            if sub_cls is None:
+                sub_cls = type(f'{cls.__name__}__env', (cls,), class_attrs)
+                _SUBCLASS_CACHE[cache_key] = sub_cls
             return sub_cls(**fields)  # type: ignore[arg-type]
 
         return cls(**fields)  # type: ignore[arg-type]
@@ -248,6 +257,6 @@ class AugmentBaseSettings(BaseSettings):
         ) -> tuple[PydanticBaseSettingsSource, ...]:
             file_sources = tuple(src_cls(cls) for src_cls in sources_to_add)  # type: ignore[arg-type]
             # 优先级：init > env > dotenv > 文件配置 > secrets
-            return (init_settings, env_settings, dotenv_settings) + file_sources + (file_secret_settings,)  # type: ignore[return-value]
+            return (init_settings, env_settings, dotenv_settings, *file_sources, file_secret_settings)  # type: ignore[return-value]
 
         return _customise

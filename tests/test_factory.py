@@ -5,7 +5,10 @@ import pytest
 from fastapi import FastAPI, APIRouter
 from starlette.testclient import TestClient
 
-from fastapi_augment.factory import create_app, _resolve_registries
+from fastapi_augment.factory import (
+    create_app,
+    _resolve_registries
+)
 from fastapi_augment.lifespan import HookRegistry
 
 
@@ -20,7 +23,7 @@ class TestCreateAppBasic:
     def test_default_metadata(self):
         app = create_app()
         assert app.title == 'FastAPI Augment'
-        assert app.version == '0.1.0'
+        assert app.version == '0.1.5'
         assert app.description.startswith('FastAPI Augment')
 
     def test_custom_metadata(self):

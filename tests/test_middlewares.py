@@ -1,20 +1,18 @@
 """
 middlewares 模块测试 — BaseASGIMiddleware / RequestIdMiddleware
 """
-import pytest
 import httpx2
 from fastapi import FastAPI
 from starlette.testclient import TestClient
-from starlette.types import Scope, Message
+from starlette.types import Message
 
 from fastapi_augment.middlewares import (
     BaseASGIMiddleware,
     RequestIdMiddleware,
     get_request_id,
     set_request_id,
-    reset_request_id,
+    reset_request_id
 )
-from fastapi_augment.middlewares.request_id import request_id_ctx_var
 
 
 # ── BaseASGIMiddleware ────────────────────────────────────────────────
@@ -41,7 +39,6 @@ class TestBaseASGIMiddleware:
         class TrackingMiddleware(BaseASGIMiddleware):
             async def on_request(self, scope):
                 called.append(True)
-                return None
 
         app = FastAPI()
 

@@ -10,8 +10,7 @@ from fastapi_augment.lifespan import (
     HookRegistry,
     core_registry,
     fastapi_lifespan,
-    clear_hooks,
-    DEFAULT_PRIORITY,
+    clear_hooks
 )
 
 

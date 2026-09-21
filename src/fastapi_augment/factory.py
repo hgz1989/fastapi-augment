@@ -8,17 +8,26 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from time import time
-from typing import TYPE_CHECKING, Sequence, Callable, Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, APIRouter
 from starlette.middleware import Middleware
 
-from .common.exception_handlers import register_exception_handlers
+from .common.exception_handlers import (
+    register_exception_handlers
+)
 from .health import create_health_router
-from .lifespan import HookRegistry, fastapi_lifespan
+from .lifespan import (
+    fastapi_lifespan,
+    HookRegistry
+)
 from .middlewares import RequestIdMiddleware
-from .openapi import configure_openapi_schema, OpenAPICustomConfig
+from .openapi import (
+    configure_openapi_schema,
+    OpenAPICustomConfig
+)
 
 if TYPE_CHECKING:
     from .db.sqlalchemy import EngineManager, SessionFactory
@@ -41,7 +50,7 @@ def create_app(
                 'enforce clean architecture, it accelerates the development of production-ready '
                 'web services.'
         ),
-        version: str = '0.1.0',
+        version: str = '0.1.5',
         debug: bool = False,
         docs_url: str | None = '/docs',
         redoc_url: str | None = '/redoc',
@@ -168,12 +177,12 @@ def create_app(
     if cors_allow_origins:
         from fastapi.middleware.cors import CORSMiddleware
 
-        opts = dict(
-            allow_origins=cors_allow_origins,
-            allow_credentials='*' not in cors_allow_origins,
-            allow_methods=cors_allow_methods or ['*'],
-            allow_headers=cors_allow_headers or ['*']
-        )
+        opts = {
+            'allow_origins': cors_allow_origins,
+            'allow_credentials': '*' not in cors_allow_origins,
+            'allow_methods': cors_allow_methods or ['*'],
+            'allow_headers': cors_allow_headers or ['*']
+        }
         app.add_middleware(CORSMiddleware, **opts)  # type: ignore
 
     # ---- 4. 生命周期注册表 ----

@@ -1,17 +1,18 @@
 """
 common.exception_handlers 模块测试 — 全局统一异常处理器
 """
-import pytest
 from fastapi import FastAPI
 from pydantic import BaseModel
 from starlette.testclient import TestClient
 
-from fastapi_augment.common.exception_handlers import register_exception_handlers
+from fastapi_augment.common.exception_handlers import (
+    register_exception_handlers
+)
 from fastapi_augment.common.exceptions import (
-    BadRequestError,
-    NotFoundError,
     UnauthorizedError,
     TooManyRequestsError,
+    BadRequestError,
+    NotFoundError
 )
 
 
@@ -239,6 +240,7 @@ class TestRegisterExceptionHandlers:
         # 验证处理器已注册（FastAPI 内部用 exception_handlers dict 存储）
         from fastapi.exceptions import RequestValidationError
         from starlette.exceptions import HTTPException
+
         from fastapi_augment.common.exceptions import BaseHttpError
 
         assert BaseHttpError in app.exception_handlers
@@ -256,6 +258,7 @@ class TestFactoryIntegration:
         from fastapi_augment import create_app
         from fastapi.exceptions import RequestValidationError
         from starlette.exceptions import HTTPException
+
         from fastapi_augment.common.exceptions import BaseHttpError
 
         app = create_app()
@@ -301,10 +304,6 @@ class TestCommonImports:
         from fastapi_augment.common import (
             BadRequestError,
             NotFoundError,
-            UnauthorizedError,
-            ForbiddenError,
-            ConflictError,
-            TooManyRequestsError,
         )
         assert BadRequestError is not None
         assert NotFoundError is not None

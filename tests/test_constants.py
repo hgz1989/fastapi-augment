@@ -3,7 +3,9 @@ common.constants 模块测试
 """
 from starlette import status
 
-from fastapi_augment.common.constants import DEFAULT_ERR_MSG
+from fastapi_augment.common.constants import (
+    DEFAULT_ERR_MSG
+)
 
 
 class TestDefaultErrMsg:

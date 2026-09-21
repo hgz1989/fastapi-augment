@@ -1,20 +1,29 @@
 """
 schemas 模块测试 — 基类 / 分页 / 请求参数 / 响应模型
 """
-from datetime import datetime, date
+from datetime import datetime, UTC, date
 
 import pytest
 from pydantic import ValidationError
 
-from fastapi_augment.schemas.base import ORMSchemaBase, SchemaBase
-from fastapi_augment.schemas.pagination import PageData
-from fastapi_augment.schemas.request import PageParams, TimeRangeParams, KeywordParams
+from fastapi_augment.schemas.base import (
+    ORMSchemaBase,
+    SchemaBase
+)
+from fastapi_augment.schemas.pagination import (
+    PageData
+)
+from fastapi_augment.schemas.request import (
+    PageParams,
+    TimeRangeParams,
+    KeywordParams
+)
 from fastapi_augment.schemas.response import (
     APIResponse,
+    CODE_SUCCESS,
     response_success,
     response_fail,
-    build_response,
-    CODE_SUCCESS,
+    build_response
 )
 
 
@@ -52,7 +61,7 @@ class TestORMSchemaBase:
         class MySchema(ORMSchemaBase):
             ts: datetime
 
-        dt = datetime(2026, 9, 4, 12, 0, 0)
+        dt = datetime(2026, 9, 4, 12, 0, 0, tzinfo=UTC)
         obj = MySchema(ts=dt)
         json_str = obj.model_dump_json()
         assert '2026-09-04T12:00:00' in json_str
@@ -124,7 +133,7 @@ class TestTimeRangeParams:
         assert p.end_time is None
 
     def test_with_values(self):
-        now = datetime.now()
+        now = datetime.now(UTC)
         p = TimeRangeParams(start_time=now, end_time=now)
         assert p.start_time == now
 

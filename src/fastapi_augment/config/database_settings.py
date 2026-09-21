@@ -4,11 +4,16 @@
 @Description    : 数据库配置——独立的嵌套 BaseModel，支持多数据库、自动推导驱动/端口
 """
 from __future__ import annotations
+
 from functools import cached_property
 from typing import ClassVar, Self
 from urllib.parse import parse_qsl
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    model_validator
+)
 
 try:
     from sqlalchemy import URL
@@ -71,16 +76,16 @@ class DatabaseSettings(BaseModel):
     # ------------------------------
     # 公共配置
     # ------------------------------
-    engine: str = 'postgresql'
-    host: str = '127.0.0.1'
-    port: int = 5432  # 0 表示按 engine 自动推导
-    user: str = 'postgres'
+    engine: str = '<engine>'
+    host: str = '<host>'
+    port: int = 0  # 0 表示按 engine 自动推导
+    user: str = '<user>'
     password: str = '<password>'
     name: str = '<name>'
     # SQLite 专用：文件路径，为空时回退到 name
     file_path: str = ''
     # 连接标识，便于 DBA 在 pg_stat_activity 等视图中定位来源
-    application_name: str = 'iam'
+    application_name: str = ''
 
     # 连接池
     pool_enabled: bool = True
@@ -112,6 +117,11 @@ class DatabaseSettings(BaseModel):
     # ------------------------------
     # 校验与默认值推导
     # ------------------------------
+    @cached_property
+    def _engine_key(self) -> str:
+        """engine 小写化后的键，多处属性复用以避免重复 lower()"""
+        return self.engine.lower()
+
     @model_validator(mode='after')
     def _fill_defaults(self) -> Self:
         """根据 engine 推导 driver 和 port 的默认值
@@ -119,7 +129,7 @@ class DatabaseSettings(BaseModel):
         Returns:
             填充默认值后的实例自身
         """
-        engine = self.engine.lower()
+        engine = self._engine_key
 
         if not self.driver:
             self.driver = self._DEFAULT_DRIVERS.get(engine, '')
@@ -139,7 +149,7 @@ class DatabaseSettings(BaseModel):
         Returns:
             是否为文件型数据库
         """
-        return self.engine.lower() in self._FILE_BASED
+        return self._engine_key in self._FILE_BASED
 
     @property
     def requires_refresh(self) -> bool:
@@ -148,7 +158,7 @@ class DatabaseSettings(BaseModel):
         Returns:
             是否需要手动 refresh 刷新默认值
         """
-        return self.engine.lower() in self._REQUIRES_REFRESH
+        return self._engine_key in self._REQUIRES_REFRESH
 
     # ------------------------------
     # URL 构建
@@ -165,7 +175,7 @@ class DatabaseSettings(BaseModel):
             query.setdefault('application_name', self.application_name)
 
         if self.ssl_mode:
-            key = self._SSL_MODE_KEYS.get(self.engine.lower(), 'ssl_mode')
+            key = self._SSL_MODE_KEYS.get(self._engine_key, 'ssl_mode')
             query.setdefault(key, self.ssl_mode)
 
         return query or None
@@ -215,5 +225,5 @@ class DatabaseSettings(BaseModel):
         Returns:
             同步驱动版本的数据库连接 URL
         """
-        sync_driver = self._SYNC_DRIVERS.get(self.engine.lower(), self.driver)
+        sync_driver = self._SYNC_DRIVERS.get(self._engine_key, self.driver)
         return self._create_url(f'{self.engine}+{sync_driver}')

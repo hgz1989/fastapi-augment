@@ -4,7 +4,6 @@
 @Description    : 数据库迁移 CLI 与 Alembic 环境配置生成
 """
 import argparse
-import subprocess
 import sys
 from logging import getLogger
 from os import environ
@@ -261,13 +260,18 @@ def downgrade(db_url: str | None = None, revision: str = '-1', project_dir: Path
 def generate_migration(message: str, models: str, project_dir: Path | None = None) -> None:
     """生成迁移文件
 
-    调用 alembic revision --autogenerate 生成迁移脚本
-    需要项目根目录已存在 alembic.ini（通过 init 命令创建）
+    统一通过 Alembic Python API（``command.stamp`` / ``command.revision``）
+    执行，避免子进程调用与运行环境不一致；stamp 与生成任一步失败都会抛错，
+    不再静默跳过
 
     Args:
         message: 迁移描述信息
         models: 模型模块，多个用逗号分隔 (如 myapp.models)
         project_dir: 项目根目录
+
+    Raises:
+        FileNotFoundError: 根目录 alembic.ini 不存在
+        RuntimeError: stamp 或生成迁移失败
     """
     here = project_dir or Path.cwd()
     alembic_ini = here / 'alembic.ini'
@@ -282,30 +286,26 @@ def generate_migration(message: str, models: str, project_dir: Path | None = Non
     # 确保 versions 目录存在
     versions_dir.mkdir(parents=True, exist_ok=True)
 
-    # 设置环境变量，让库内的 env.py 能加载用户模型
-    env = environ.copy()
-    env['FASTAPI_AUGMENT_MODELS'] = models
-
-    # 先 stamp head，同步数据库版本标记，
-    # 避免 "Target database is not up to date" 错误
-    stamp_cmd = [
-        sys.executable, '-m', 'alembic',
-        '-c', str(alembic_ini),
-        'stamp', 'head'
-    ]
-    subprocess.run(stamp_cmd, env=env, cwd=str(here))
-
-    # 调用 alembic 生成迁移
-    cmd = [
-        sys.executable, '-m', 'alembic',
-        '-c', str(alembic_ini),
-        'revision', '--autogenerate', '-m', message
-    ]
+    # 设置环境变量，让库内的 env.py 能加载用户模型；执行完成后恢复原值
+    old_models = environ.get('FASTAPI_AUGMENT_MODELS')
+    environ['FASTAPI_AUGMENT_MODELS'] = models
     try:
-        subprocess.run(cmd, env=env, cwd=str(here), check=True)
+        cfg = _resolve_alembic_config(None, here)
+
+        # 先 stamp head，同步数据库版本标记，
+        # 避免 "Target database is not up to date" 错误
+        command.stamp(cfg, 'head')
+
+        # 生成迁移脚本
+        command.revision(cfg, message=message, autogenerate=True)
         _logger.info('迁移脚本已生成于 %s', versions_dir)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f'生成迁移失败 (返回码 {e.returncode})') from e
+    except Exception as e:
+        raise RuntimeError(f'生成迁移失败: {e}') from e
+    finally:
+        if old_models is None:
+            environ.pop('FASTAPI_AUGMENT_MODELS', None)
+        else:
+            environ['FASTAPI_AUGMENT_MODELS'] = old_models
 
 
 # ===================== CLI 入口 =====================
@@ -348,7 +348,8 @@ def cli_main() -> None:
         else:
             parser.print_help()
     except (FileNotFoundError, RuntimeError) as e:
-        _logger.error('%s', e)
+        # CLI 报错仅输出错误信息，不打印堆栈（刻意不用 exception）
+        _logger.error('%s', e)  # noqa: TRY400
         sys.exit(1)
 
 

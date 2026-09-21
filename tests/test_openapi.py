@@ -1,11 +1,12 @@
 """
 openapi 模块测试 — OpenAPICustomConfig / configure_openapi_schema
 """
-import pytest
 from fastapi import FastAPI
-from starlette.testclient import TestClient
 
-from fastapi_augment.openapi import OpenAPICustomConfig, configure_openapi_schema
+from fastapi_augment.openapi import (
+    OpenAPICustomConfig,
+    configure_openapi_schema
+)
 
 
 def _make_app_with_route(config: OpenAPICustomConfig | None = None) -> FastAPI:

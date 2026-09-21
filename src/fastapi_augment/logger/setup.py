@@ -7,12 +7,14 @@ import logging
 import sys
 from pathlib import Path
 
-from .record_factory import install_request_id_factory
 from .filters import UvicornNameRewriteFilter
 from .handlers import (
     MonthlyRotatingFileHandler,
-    MultiProcessTimedRotatingFileHandler,
     YearlyRotatingFileHandler,
+    MultiProcessTimedRotatingFileHandler
+)
+from .record_factory import (
+    install_request_id_factory
 )
 
 # -------------------------------------
@@ -62,6 +64,9 @@ def _init_root_logger() -> None:
     uvicorn/fastapi已单独设为INFO，不受根日志影响
 
     Note:
+        basicConfig 不使用 force=True：若宿主应用已配置根日志 handler，
+        本库不会强制覆盖，避免作为第三方库引入时破坏宿主日志配置；
+        宿主未配置时才按本库默认格式初始化
         多进程环境下各进程拥有独立内存空间，_init_done 在每个
         子进程中独立为 False，每个进程各自完成一次初始化——这是
         符合预期的行为，日志 handler 属于进程级资源
@@ -75,13 +80,12 @@ def _init_root_logger() -> None:
         level=logging.WARNING,
         format=NORMAL_FORMAT,
         datefmt=_DATE_FORMAT,
-        force=True,
     )
     _takeover_uvicorn()
     _init_done = True
 
 
-# 包导入时自动执行一次初始化
+# 包导入时自动执行一次初始化（幂等；宿主已配置根日志时不会覆盖其配置）
 _init_root_logger()
 
 

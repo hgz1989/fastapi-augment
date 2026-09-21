@@ -5,11 +5,16 @@
 """
 from .filters import UvicornNameRewriteFilter
 from .handlers import (
-    MonthlyRotatingFileHandler,
     MultiProcessTimedRotatingFileHandler,
-    YearlyRotatingFileHandler,
+    MonthlyRotatingFileHandler,
+    YearlyRotatingFileHandler
 )
-from .setup import NORMAL_FORMAT, set_log_format, set_log_level, setup_logger
+from .setup import (
+    NORMAL_FORMAT,
+    setup_logger,
+    set_log_level,
+    set_log_format
+)
 
 __all__ = [
     # filters

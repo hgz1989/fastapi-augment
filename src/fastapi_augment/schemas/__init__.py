@@ -5,7 +5,11 @@
 """
 from .base import SchemaBase, ORMSchemaBase
 from .pagination import PageData
-from .request import PageParams, TimeRangeParams, KeywordParams
+from .request import (
+    PageParams,
+    TimeRangeParams,
+    KeywordParams
+)
 from .response import (
     APIResponse,
     response_success,

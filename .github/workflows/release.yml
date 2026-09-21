@@ -1,0 +1,141 @@
+# ============================================================
+# Release：测试检查 + 打包源码 + 打 tag + 上传 GitHub Release
+#
+# 流程：
+#   0. pytest + ruff 检查（任一失败则停止，不发布）
+#   1. 确定目标版本：release=无 tag 用代码版本 / 代码版本>tag 用代码版本 / 否则以 tag 版本为准；
+#      rebuild=使用指定 tag 重新打包
+#   2. 校验版本一致性：目标版本与代码版本不一致时终止并引导（master 受保护，需先在 develop 更新并 PR 合并）
+#   3. 打包源码（zip + tar.gz）
+#   4. 打包成功后：打版本 tag 并推送、上传到 GitHub Release
+#   —— 打包失败不留下任何 tag/Release，重试不会跳版本号
+#
+# 触发方式：
+#   - 推送到 master（自动）：VERSION 有变更时自动发布新版本（打 tag + 上传 Release）
+#   - 手动触发（workflow_dispatch）：release=发布新版本；rebuild=重新打包指定版本
+#   —— 发布类操作仅 master 分支可执行（job 级 if 校验），其它分支触发将被跳过
+#
+# 产物：GitHub Release vX.Y.Z + 资产 fastapi_augment-X.Y.Z.zip / .tar.gz
+# ============================================================
+name: Create Release
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 操作类型（release=发布新版本；rebuild=重新打包指定版本）
+        type: choice
+        required: true
+        default: release
+        options:
+          - release
+          - rebuild
+      rebuild_tag:
+        description: 要重新打包的版本 tag（rebuild 时填写，如 v1.2.3）
+        type: string
+        required: false
+env:
+  # 项目名：同时是打包资产名前缀
+  APP_NAME: fastapi_augment
+# 同一时间只允许一个发布流程，防止并发读到同一旧版本号
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    # 发布类操作仅 master 分支可执行；其它分支手动触发将直接跳过
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # 拉取全部历史与 tag
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv sync --group dev
+
+      # ---------- 检查：测试 + lint（任一失败则后续步骤不执行，不会发布）----------
+      - name: Run tests
+        run: uv run --frozen pytest -q
+
+      - name: Run lint
+        run: uvx ruff check src tests
+
+      # 版本变更守卫：push 触发时仅 VERSION 有变更才自动发布（避免重复发布与强制覆盖 tag）；
+      # workflow_dispatch 手动触发不受守卫限制
+      - name: Check version change
+        id: versioncheck
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only HEAD^ HEAD | grep -q '^VERSION$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "本次 push 未变更 VERSION，跳过自动发布"
+          fi
+
+      # ---------- 解析目标版本（打 tag 挪到打包成功后）----------
+      - name: Resolve target version
+        id: resolve
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          if [ "${{ inputs.mode }}" = "rebuild" ]; then
+            python .github/scripts/release_version.py --mode rebuild --rebuild-tag "${{ inputs.rebuild_tag }}"
+          else
+            python .github/scripts/release_version.py --mode release
+          fi
+
+      # 版本一致性校验：目标版本与代码版本不一致时终止并引导
+      # master 受保护（禁止直接提交代码）：版本同步需在 develop 分支完成并 PR 合并
+      - name: Update version files
+        if: steps.resolve.outputs.changed == 'true'
+        run: |
+          echo "::error::代码版本与目标版本不一致（目标 v${{ steps.resolve.outputs.final_version }}）"
+          echo "master 受保护，不允许直接提交代码；请先在 develop 分支更新 VERSION 与 factory.py 的 create_app 默认版本，"
+          echo "通过 PR 合并到 master 后重新触发发布"
+          exit 1
+
+      # rebuild 模式：检出目标 tag 对应代码重新打包
+      - name: Checkout rebuild tag
+        if: inputs.mode == 'rebuild'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.rebuild_tag }}
+
+      # ---------- 打包源码（打包成功后才打 tag；失败不留下任何 tag/Release）----------
+      - name: Package source
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: python .github/scripts/release_package.py "${{ steps.resolve.outputs.final_version }}"
+
+      # 打包成功后打 tag 并推送（release 模式；tag 已存在则更新指向）
+      - name: Create or update tag
+        if: steps.versioncheck.outputs.changed == 'true' && inputs.mode != 'rebuild'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "v${{ steps.resolve.outputs.final_version }}"
+          git push origin "v${{ steps.resolve.outputs.final_version }}" --force
+          echo "打包成功，已更新 tag: v${{ steps.resolve.outputs.final_version }}"
+
+      - name: Create or update Release
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: |
+          VERSION="${{ steps.resolve.outputs.final_version }}"
+          ASSETS="dist-release/${{ env.APP_NAME }}-${VERSION}.zip dist-release/${{ env.APP_NAME }}-${VERSION}.tar.gz"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" $ASSETS --clobber
+          else
+            gh release create "v${VERSION}" $ASSETS --title "Release v${VERSION}" --generate-notes
+          fi
+          echo "Release v${VERSION} 已就绪，资产: $ASSETS"

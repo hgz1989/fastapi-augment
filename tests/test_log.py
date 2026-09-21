@@ -1,24 +1,28 @@
 """
 logger 模块测试 — factory / filters / handlers / config
 """
+# ruff: noqa: DTZ001  # 轮转测试用 naive 本地时刻模拟固定时间点，与 handler 内部语义一致
 import logging
-import time
 from datetime import datetime
 
 import pytest
 
 from fastapi_augment.logger import (
-    NORMAL_FORMAT,
     UvicornNameRewriteFilter,
     MonthlyRotatingFileHandler,
     YearlyRotatingFileHandler,
     MultiProcessTimedRotatingFileHandler,
-    setup_logger,
     set_log_level,
     set_log_format,
+    setup_logger
 )
-from fastapi_augment.logger.record_factory import _record_factory, install_request_id_factory
-from fastapi_augment.middlewares.request_id import request_id_ctx_var
+from fastapi_augment.logger.record_factory import (
+    install_request_id_factory,
+    _record_factory
+)
+from fastapi_augment.middlewares.request_id import (
+    request_id_ctx_var
+)
 
 
 # ── factory: request_id 注入 ─────────────────────────────────────────

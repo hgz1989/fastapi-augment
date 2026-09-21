@@ -17,6 +17,7 @@
 - **健康检查** — 可扩展的检查器模式，内置应用状态与数据库连通性检查，一行开关
 - **配置管理** — 基于 pydantic-settings，支持 `.env` 文件、环境变量前缀、嵌套配置
 - **数据库迁移 CLI** — 一行命令生成/执行迁移，自动发现用户模型
+- **应用发现** — 自动发现子包 `__all__` 导出的 FastAPI 应用，支持排除与导入串校验
 
 ## 安装
 
@@ -250,7 +251,7 @@ async with sessions.read_session() as session:
     total = await user_repo.count(session, is_active=True)
     has_admin = await user_repo.exists(session, role='admin')
 
-# 分页查询（返回 dict：items / page / size / total / pages）
+# 分页查询（返回 dict：items / page / size / total / pages；size 上限 1000，超限静默截断）
 result = await user_repo.paginate(session, page=1, size=10, role='admin', order_by=['-created_at'])
 # result = {'items': [...], 'page': 1, 'size': 10, 'total': 100, 'pages': 10}
 
@@ -692,15 +693,84 @@ from fastapi_augment.middlewares import get_request_id
 request_id = get_request_id()
 ```
 
+### 应用发现 — `common.app_discovery`
+
+递归发现 `apps` 包下所有子包通过 `__all__` 导出的 FastAPI 应用实例，用于多应用聚合部署与启动前校验。
+
+**约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 FastAPI 实例（如 `platform_app`）；只有出现在 `__all__` 且确实是 `FastAPI` 实例的对象才被识别为"应用"。
+
+```python
+from fastapi_augment.common import discover_fastapi_apps, FastAPIAppSpec, validate_asgi_import
+
+# 发现全部应用（排除主应用，获取主应用之外的其它应用）
+apps: list[FastAPIAppSpec] = discover_fastapi_apps(root='apps', exclude='apps.platform:platform_app')
+
+# 每个应用可直接启动（import_string 即 uvicorn 导入串）
+for spec in apps:
+    uvicorn.run(spec.import_string)   # 'apps.platform:platform_app'
+
+# 启动前校验主应用导入串是否真实存在且为 FastAPI 实例
+validate_asgi_import('apps.platform:platform_app')
+```
+
+- **`exclude` 支持三种标识** — 模块名（`apps.platform`）、导出名（`platform_app`）或 `module:name` 导入串（`apps.platform:platform_app`）
+- 结果按模块名排序，顺序稳定
+
+## 开发与发布
+
+### 分支策略
+
+- **`master`** — 受保护分支，**禁止直接提交代码**，仅可通过其它分支 PR 合并
+- **`develop`**（或功能分支）— 日常开发与版本号更新，完成后通过 PR 合并到 `master`
+- 发布类操作（Release 打 tag / 上传、PyPI 发布）**仅 `master` 分支可执行**，workflow 已做分支校验
+
+### 代码检查与测试
+
+```bash
+# lint（读取 pyproject.toml 的 [tool.ruff] 配置）
+uvx ruff check src tests
+
+# 测试
+uv run --frozen pytest -q
+```
+
+CI 已配置自动检查（`.github/workflows/lint.yml`）：每次 push / PR 自动运行 ruff。
+
+### 发布 Release
+
+`.github/workflows/release.yml` 触发方式：
+
+- **推送到 `master`（自动）** — 本次合并变更了 `VERSION` 时自动发布新版本（打 tag + 上传 GitHub Release）；未变更则跳过，避免重复发布
+- **master 分支手动触发**（workflow_dispatch）— `release` 发布新版本 / `rebuild` 重新打包指定版本
+
+发布类操作仅 master 分支可执行，自动完成：
+
+1. **检查** — pytest + ruff，任一失败即停止，不发布
+2. **确定版本** — 无 tag 用代码版本（`VERSION` 文件）；代码版本 > 最高 tag 用代码版本；否则以最高 tag 版本为准
+3. **校验版本一致性** — 目标版本与代码版本不一致时终止并引导（master 受保护，需先在 `develop` 更新 `VERSION` 与 `factory.py` 版本，PR 合并后重试）
+4. **打包** — 源码打包为 `fastapi_augment-<版本>.zip` / `.tar.gz`（排除 `.venv`、缓存、构建产物）
+5. **打 tag + 发布** — 打包成功后才创建/更新 `v<版本>` tag 并上传 GitHub Release；失败不留任何 tag/Release，重试不会跳版本
+
+建议发布前先在 `develop` 分支完成版本号更新并 PR 合并到 `master`——合并触发自动发布，发布流程将直接复用代码版本。
+
+PyPI 发布（`.github/workflows/publish.yml`）同样支持合并 `master` 自动触发，仅 `VERSION` 变更时发布（PyPI 版本不可覆盖）。
+
+支持两种模式：
+
+- **release**（默认）— 按版本规则发布新版本
+- **rebuild** — 指定已有 tag（如 `v1.2.3`）重新打包上传，不修改代码版本
+
 ## 项目结构
 
 ```
 fastapi_augment/
 ├── common/
+│   ├── app_discovery.py      # FastAPI 应用发现（__all__ 约定）
 │   ├── constants.py          # 全局常量与默认错误文案
 │   ├── exceptions.py         # 4xx HTTP 异常体系
 │   ├── exception_handlers.py # 全局异常处理器
 │   └── utils/
+│       ├── paths.py          # 路径工具（get_root_dir / find_project_root）
 │       └── strings.py        # 字符串工具 / JSON 序列化
 ├── config/
 │   ├── base_settings.py       # AugmentBaseSettings 配置管理

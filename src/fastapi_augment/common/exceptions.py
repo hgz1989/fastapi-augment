@@ -142,6 +142,7 @@ class TooManyRequestsError(BaseHttpError):
 
     def __init__(
             self,
+            status_code: int | None = None,
             detail: str | None = None,
             retry_after: int | None = None,
             headers: dict[str, Any] | None = None,
@@ -149,6 +150,7 @@ class TooManyRequestsError(BaseHttpError):
         """
 
         Args:
+            status_code: http响应状态码，不传则读取子类的 _status_code 类变量
             detail: 自定义错误提示
             retry_after: 设置 Retry‑After 响应头，单位秒
             headers: 自定义附加响应头
@@ -157,6 +159,7 @@ class TooManyRequestsError(BaseHttpError):
         if retry_after is not None:
             final_headers['Retry-After'] = str(retry_after)
         super().__init__(
+            status_code=status_code,
             detail=detail,
             headers=final_headers if final_headers else None,
         )

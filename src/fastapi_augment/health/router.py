@@ -7,11 +7,18 @@
 """
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Request, Response
 
-from .checker import BaseChecker, HealthResponse, _worst_status, STATUS_HEALTHY, STATUS_UNHEALTHY
+from .checker import (
+    BaseChecker,
+    HealthResponse,
+    CheckResult,
+    STATUS_HEALTHY,
+    _worst_status,
+    STATUS_UNHEALTHY
+)
 from .checkers import AppChecker, DatabaseChecker
 
 
@@ -70,9 +77,8 @@ def create_health_router(
         for checker in checkers:
             try:
                 result = await checker.check(request.app)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 # 检查器自身异常，兜底为 unhealthy
-                from .checker import CheckResult
                 result = CheckResult(
                     name=checker.name,
                     status=STATUS_UNHEALTHY,

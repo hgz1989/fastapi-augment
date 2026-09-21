@@ -5,15 +5,26 @@ db.sqlalchemy.repository_base 模块测试 — RepositoryBase 通用仓储操作
 """
 import pytest
 import pytest_asyncio
-from sqlalchemy import String, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from fastapi_augment.db.sqlalchemy.model_base import ModelBase
-from fastapi_augment.db.sqlalchemy.repository_base import RepositoryBase
-from fastapi_augment.db.sqlalchemy.mixins.timestamp import TimestampMixin
-from fastapi_augment.db.sqlalchemy.mixins.soft_delete import SoftDeleteMixin
-
+from sqlalchemy import String
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker
+)
 from sqlalchemy.orm import Mapped, mapped_column
+
+from fastapi_augment.db.sqlalchemy.mixins.soft_delete import (
+    SoftDeleteMixin
+)
+from fastapi_augment.db.sqlalchemy.mixins.timestamp import (
+    TimestampMixin
+)
+from fastapi_augment.db.sqlalchemy.model_base import (
+    ModelBase
+)
+from fastapi_augment.db.sqlalchemy.repository_base import (
+    RepositoryBase
+)
 
 
 # ── 测试模型 ──────────────────────────────────────────────────────────
@@ -427,3 +438,14 @@ class TestRepositoryPaginate:
 
         names = [item.name for item in result['items']]
         assert names == ['alice', 'bob', 'charlie']
+
+    async def test_paginate_size_capped(self, session: AsyncSession, repo: RepositoryBase):
+        """paginate 的 size 超上限时被截断为 MAX_PAGE_SIZE"""
+        from fastapi_augment.db.sqlalchemy.repository_base import MAX_PAGE_SIZE
+
+        for i in range(5):
+            await RepositoryBase.create(session, UserItem(name=f'user_{i}', role='user'))
+
+        result = await repo.paginate(session, page=1, size=MAX_PAGE_SIZE * 10)
+        assert result['size'] == MAX_PAGE_SIZE
+        assert len(result['items']) == 5
