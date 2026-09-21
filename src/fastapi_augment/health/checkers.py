@@ -11,7 +11,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
-from sqlalchemy import text
 
 from .checker import (
     BaseChecker,
@@ -105,6 +104,8 @@ class DatabaseChecker(BaseChecker):
 
         start = time.perf_counter()
         try:
+            from sqlalchemy import text  # 惰性导入：sqlalchemy 为可选依赖，未安装时降级为 unhealthy
+
             engine = engine_manager.write_engine
             async with engine.connect() as conn:
                 await conn.execute(text('SELECT 1'))
