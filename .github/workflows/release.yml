@@ -78,7 +78,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only HEAD^ HEAD | grep -q '^VERSION$'; then
+          elif git diff --name-only "${{ github.event.before }}" HEAD | grep -q '^VERSION$'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
