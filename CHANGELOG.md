@@ -11,6 +11,7 @@
 - **`common.app_discovery`** — 新增 FastAPI 应用发现模块：
   - `discover_fastapi_apps` — 递归发现 `apps` 子包通过 `__all__` 导出的 FastAPI 应用，支持 `exclude`（模块名 / 导出名 / `module:name` 导入串三种标识），结果按模块名排序
   - `FastAPIAppSpec` — 应用装载信息（模块 / 导出名 / 实例 / `import_string`）
+  - **`tests/test_app_discovery.py`** — 新增应用发现模块单元测试，覆盖 `validate_asgi_import` / `FastAPIAppSpec` / `discover_fastapi_apps`（19 例）
   - `validate_asgi_import` — 校验 ASGI 应用导入串真实存在且为 FastAPI 实例
 - **Release 发布流程** — 新增 `.github/workflows/release.yml` 与配套脚本：
   - 版本决策规则：无 tag 用代码版本 / 代码版本 > 最高 tag 用代码版本 / 否则以最高 tag 版本为准
