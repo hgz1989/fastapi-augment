@@ -124,7 +124,7 @@ def set_log_format(log_format: str) -> None:
 
 def setup_logger(
     log_dir: str | Path | None = None,
-    filename: str = 'app.logger',
+    filename: str = 'app.log',
     rotation: str = 'day',
     backup_count: int = 30,
     encoding: str = 'utf-8',
