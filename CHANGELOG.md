@@ -4,7 +4,11 @@
 
 ---
 
-## [Unreleased]
+## [0.1.6] — 2026-09-23
+
+### Added
+
+- **北京时间类型支持** — 新增 `BeijingDatetime` 类型（继承自 `datetime`），数据库 UTC 时间序列化为北京时间字符串；`TimeRangeParams` 的时间字段改用该类型；schemas 入口文件导出 `BeijingDatetime`，接口返回示例同步更新
 
 ### Changed
 
