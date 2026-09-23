@@ -25,6 +25,12 @@
 - **覆盖率门禁** — `pytest-cov>=5.0` 加入 dev 依赖；pytest `addopts` 配置 `--cov=fastapi_augment --cov-report=term-missing --cov-fail-under=90`，覆盖率不足 90% 时测试失败（当前实测 92.66%）
 - **新增 `tests/test_strings.py`** — 字符串工具函数首个测试文件（24 例），覆盖命名转换 / 随机串 / JSON 序列化双分支（orjson 与标准库 fallback），使覆盖率突破 90% 门禁
 - **修复 orjson 缩进 bug** — `common.utils.strings` 中 `_ORJSON_OPT_INDENT_2` 硬编码为 `0x04`，实际 orjson `OPT_INDENT_2` 常量为 `1`（`0x04` 是 `OPT_NON_STR_KEYS`），导致 `compact=False` 缩进从未生效；已修正
+- **Repository 软删除收尾** — `RepositoryBase` 对混入 `SoftDeleteMixin` 的模型自动感知：
+  - 查询族（`get` / `get_unique` / `get_first` / `list` / `count` / `paginate` / `exists`）默认排除已软删行，新增 `include_deleted=True` 参数放开
+  - 删除族（`delete` / `delete_by_id` / `delete_where`）对软删模型自动转软删（写 `is_deleted=True` + `deleted_at`），非软删模型保持物理删除
+  - 新增 `hard_delete_by_id` / `hard_delete_where` 显式物理删除；`delete_by_id` 软删后显式同步已加载实例，避免 stale 读取
+- **Repository 聚合与批量更新** — 新增 `sum` / `avg` / `min` / `max` 数值列聚合（与软删过滤联动，支持过滤条件）与 `update_where` 条件批量更新（单条 UPDATE，返回受影响行数）
+- **新增 `tests/test_soft_delete.py`** — 软删除收尾与聚合能力测试（33 例），覆盖默认过滤 / `include_deleted` / 软删转删除 / 物理删除 / 聚合联动 / 批量更新 / 非软删模型回归；全量 537 passed，覆盖率 92.74%
 - **打包校验** — 发布链 publish Job 增加 `twine check` 步骤，上传 PyPI 前校验 sdist/wheel 元数据合法性
 
 ## [0.1.5] — 2026-09-21

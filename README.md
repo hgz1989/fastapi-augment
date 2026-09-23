@@ -267,6 +267,37 @@ async with sessions.transaction() as session:
     count = await user_repo.delete_where(session, is_active=False)
 ```
 
+**软删除感知（模型混入 `SoftDeleteMixin` 时自动生效，非软删模型行为不变）：**
+
+```python
+# 查询默认排除已软删行；include_deleted=True 可放开
+user = await user_repo.get(session, id_='01HXK...')        # 已软删 → None
+users = await user_repo.list(session, include_deleted=True)  # 包含已软删行
+total = await user_repo.count(session, include_deleted=True)
+
+# 删除自动转软删（写 is_deleted=True + deleted_at）；非软删模型仍为物理删除
+await user_repo.delete(session, user)
+deleted = await user_repo.delete_by_id(session, id_='01HXK...')
+count = await user_repo.delete_where(session, is_active=False)
+
+# 需要真正物理删除时显式调用 hard_delete_*
+await user_repo.hard_delete_by_id(session, id_='01HXK...')
+count = await user_repo.hard_delete_where(session, is_active=False)
+```
+
+**聚合与批量更新：**
+
+```python
+# 数值列聚合（默认排除已软删行，支持过滤条件；无匹配行返回 None）
+total_amount = await user_repo.sum(session, 'amount', role='admin')
+avg_amount = await user_repo.avg(session, 'amount')
+min_amount = await user_repo.min(session, 'amount')
+max_amount = await user_repo.max(session, 'amount')
+
+# 批量更新（单条 UPDATE，返回受影响行数；默认跳过已软删行）
+affected = await user_repo.update_where(session, {'role': 'admin'}, name='alice')
+```
+
 **过滤语法：**
 
 ```python
