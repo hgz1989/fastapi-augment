@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from inspect import isclass, isfunction, ismethod, signature, Parameter
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeGuard
 
 Scope = dict[str, Any]
 """ASGI scope：连接与请求元数据（可被框架扩展）"""
@@ -53,7 +53,7 @@ ASGIApplication = ASGI2Application | ASGI3Application
 """ASGI 应用：ASGI2（类）与 ASGI3（可调用）的并集"""
 
 
-def is_asgi_app(app: Any) -> bool:
+def is_asgi_app(app: Any) -> TypeGuard[ASGIApplication]:
     """运行时近似判定对象是否为可调用的 ASGI 应用
 
     判定规则：
@@ -66,7 +66,8 @@ def is_asgi_app(app: Any) -> bool:
         app: 待判定的对象
 
     Returns:
-        True 表示可视为 ASGI 应用；签名判定为近似，权威判定以 uvicorn 实际启动为准
+        True 表示可视为 ASGI 应用，类型检查时收窄为 ASGIApplication；
+        签名判定为近似，权威判定以 uvicorn 实际启动为准
     """
     if not callable(app):
         return False
