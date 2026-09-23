@@ -25,7 +25,7 @@
 
 ### Added
 
-- **`common.app_discovery`** — 新增 FastAPI 应用发现模块：
+- **`common.app_discovery`** — 新增应用发现模块：
   - `discover_asgi_apps` — 递归发现 `apps` 子包通过 `__all__` 导出的 ASGI 应用，支持 `exclude`（模块名 / 导出名 / `module:name` 导入串三种标识），结果按模块名排序
   - `ASGIAppSpec` — 应用装载信息（模块 / 导出名 / 实例 / `import_string`）
   - **`tests/test_app_discovery.py`** — 新增应用发现模块单元测试，覆盖 `validate_asgi_import` / `ASGIAppSpec` / `discover_asgi_apps`（19 例）
