@@ -17,7 +17,7 @@
 - **健康检查** — 可扩展的检查器模式，内置应用状态与数据库连通性检查，一行开关
 - **配置管理** — 基于 pydantic-settings，支持 `.env` 文件、环境变量前缀、嵌套配置
 - **数据库迁移 CLI** — 一行命令生成/执行迁移，自动发现用户模型
-- **应用发现** — 自动发现子包 `__all__` 导出的 FastAPI 应用，支持排除与导入串校验
+- **应用发现** — 自动发现子包 `__all__` 导出的 FastAPI 应用，支持排除与 ASGI 导入串校验
 
 ## 安装
 
@@ -821,12 +821,15 @@ apps: list[FastAPIAppSpec] = discover_fastapi_apps(root='apps', exclude='apps.pl
 for spec in apps:
     uvicorn.run(spec.import_string)   # 'apps.platform:platform_app'
 
-# 启动前校验主应用导入串是否真实存在且为 FastAPI 实例
+# 启动前校验主应用导入串是否真实存在且为可调用的 ASGI 应用（uvicorn 可直接启动）
 validate_asgi_import('apps.platform:platform_app')
 ```
 
 - **`exclude` 支持三种标识** — 模块名（`apps.platform`）、导出名（`platform_app`）或 `module:name` 导入串（`apps.platform:platform_app`）
 - 结果按模块名排序，顺序稳定
+- **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI 应用（Starlette / Flask 等或自定义 ASGI 函数，判定规则见下）均通过
+
+**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGIApplication` / `ASGI2Application` / `ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI2（类，scope 单参）或 ASGI3（`scope, receive, send` 三参）结构。签名判定为近似，权威判定以 uvicorn 实际启动为准。
 
 ## 开发与发布
 
@@ -891,6 +894,7 @@ publish Job 以 PyPI 线上版本为准（查询 `pypi.org/pypi/<project>/<versi
 fastapi_augment/
 ├── common/
 │   ├── app_discovery.py      # FastAPI 应用发现（__all__ 约定）
+│   ├── asgi_types.py         # ASGI 类型定义与 is_asgi_app 运行时判定
 │   ├── constants.py          # 全局常量与默认错误文案
 │   ├── exceptions.py         # 4xx HTTP 异常体系
 │   ├── exception_handlers.py # 全局异常处理器

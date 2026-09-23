@@ -6,7 +6,9 @@
 from dataclasses import FrozenInstanceError
 from importlib import import_module
 from pathlib import Path
+from sys import modules as _sys_modules
 from textwrap import dedent
+from types import ModuleType
 
 import pytest
 
@@ -88,8 +90,9 @@ class TestValidateAsgiImport:
         with pytest.raises(RuntimeError, match='不存在属性'):
             validate_asgi_import('fastapi:no_such_attr')
 
-    def test_class_not_instance_raises(self):
-        with pytest.raises(RuntimeError, match='不是 FastAPI 应用'):
+    def test_class_not_asgi_raises(self):
+        # FastAPI 类（非实例）不可直接作为 ASGI 应用（uvicorn 不自动实例化）
+        with pytest.raises(RuntimeError, match='不是可调用的 ASGI 应用'):
             validate_asgi_import('fastapi:FastAPI')
 
     def test_valid_import_string(self, apps_package: Path):
@@ -99,6 +102,38 @@ class TestValidateAsgiImport:
         # 无冒号时默认取属性 app；apps.ai 无 app 属性，应报属性不存在
         with pytest.raises(RuntimeError, match='不存在属性'):
             validate_asgi_import('apps.ai')
+
+    def test_plain_asgi_function_passes(self, monkeypatch: pytest.MonkeyPatch):
+        # 任意 (scope, receive, send) 三参异步函数均可作为 ASGI 应用
+        module = ModuleType('fake_asgi_mod')
+
+        async def app(scope, receive, send):
+            ...
+
+        module.app = app
+        monkeypatch.setitem(_sys_modules, 'fake_asgi_mod', module)
+        validate_asgi_import('fake_asgi_mod:app')
+
+    def test_asgi3_scope_only_passes(self, monkeypatch: pytest.MonkeyPatch):
+        # ASGI3 两层形态：app(scope) 返回 (receive, send) 处理函数
+        module = ModuleType('fake_asgi3_mod')
+
+        async def app(scope):
+            async def handler(receive, send):
+                ...
+
+            return handler
+
+        module.app = app
+        monkeypatch.setitem(_sys_modules, 'fake_asgi3_mod', module)
+        validate_asgi_import('fake_asgi3_mod:app')
+
+    def test_non_callable_raises(self, monkeypatch: pytest.MonkeyPatch):
+        module = ModuleType('fake_bad_mod')
+        module.app = 'not-a-callable'
+        monkeypatch.setitem(_sys_modules, 'fake_bad_mod', module)
+        with pytest.raises(RuntimeError, match='不是可调用的 ASGI 应用'):
+            validate_asgi_import('fake_bad_mod:app')
 
 
 # ── FastAPIAppSpec ──────────────────────────────────────────────────

@@ -17,6 +17,7 @@
   - 发布前增加代码门禁（pytest + ruff），防止绕过分支保护发布未验证代码
 - **CI 重构** — `lint.yml` 升级为 CI workflow（Ruff + Pytest 3.11/3.12/3.13 矩阵），仅 PR / develop push 触发，PR 阶段不打包、不打 tag、不发布
 - **发布门禁加固** — `health.checkers` 的 sqlalchemy 改为函数内惰性导入，未安装可选依赖时 `DatabaseChecker` 降级为 unhealthy 而非崩溃；CI 安装 `--all-extras`
+- **ASGI 应用校验放宽** — `validate_asgi_import` 不再限定 FastAPI，改为校验可调用的 ASGI 应用（与 uvicorn 运行要求一致）；新增 `common.asgi_types`（ASGI2/ASGI3 类型定义 + `is_asgi_app` 运行时近似判定）
 
 ## [0.1.5] — 2026-09-21
 

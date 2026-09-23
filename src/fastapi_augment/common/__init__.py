@@ -8,6 +8,18 @@ from .app_discovery import (
     discover_fastapi_apps,
     validate_asgi_import
 )
+from .asgi_types import (
+    ASGI2Application,
+    ASGI2Protocol,
+    ASGI3Application,
+    ASGIApplication,
+    ASGIReceiveCallable,
+    ASGIReceiveEvent,
+    ASGISendCallable,
+    ASGISendEvent,
+    Scope,
+    is_asgi_app
+)
 from .constants import DEFAULT_ERR_MSG
 from .exception_handlers import (
     base_http_error_handler,
@@ -41,6 +53,17 @@ __all__ = [
     'FastAPIAppSpec',
     'discover_fastapi_apps',
     'validate_asgi_import',
+    # asgi_types
+    'ASGI2Application',
+    'ASGI2Protocol',
+    'ASGI3Application',
+    'ASGIApplication',
+    'ASGIReceiveCallable',
+    'ASGIReceiveEvent',
+    'ASGISendCallable',
+    'ASGISendEvent',
+    'Scope',
+    'is_asgi_app',
     # constants
     'DEFAULT_ERR_MSG',
     # exceptions

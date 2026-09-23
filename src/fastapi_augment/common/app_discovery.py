@@ -21,6 +21,8 @@ from types import ModuleType
 
 from fastapi import FastAPI
 
+from .asgi_types import is_asgi_app
+
 _logger = getLogger(__name__)
 
 
@@ -157,14 +159,15 @@ def validate_asgi_import(import_string: str) -> None:
     1. 导入字符串为空（''）直接报错
     2. 格式须为 ``module:attr``（无冒号时默认取属性 ``app``）
     3. 模块必须可导入、属性必须真实存在
-    4. 属性对象必须是 ``FastAPI`` 实例
+    4. 属性对象必须是可调用的 ASGI 应用（与 uvicorn 运行要求一致，
+       不限于 FastAPI；判定规则见 ``common.asgi_types.is_asgi_app``）
 
     Args:
         import_string: uvicorn 导入串，如 ``apps.platform:platform_app``
 
     Raises:
         ValueError: 导入串为空或格式错误
-        RuntimeError: 模块无法导入 / 属性不存在 / 不是 FastAPI 实例
+        RuntimeError: 模块无法导入 / 属性不存在 / 不是可调用的 ASGI 应用
     """
     module_name, attr = _parse_import_string(import_string)
     try:
@@ -176,6 +179,6 @@ def validate_asgi_import(import_string: str) -> None:
     app = getattr(module, attr, missing)
     if app is missing:
         raise RuntimeError(f'主应用模块 {module_name!r} 中不存在属性 {attr!r}，请检查模块定义')
-    if not isinstance(app, FastAPI):
-        # 消息含"类型"二字触发 TRY004 误报；RuntimeError 语义正确（应用校验错误）
-        raise RuntimeError(f'{import_string} 不是 FastAPI 应用（实际类型: {type(app).__name__}）')  # noqa: TRY004
+    if not is_asgi_app(app):
+        # RuntimeError 语义正确（应用校验错误）
+        raise RuntimeError(f'{import_string} 不是可调用的 ASGI 应用（实际类型: {type(app).__name__}）')
