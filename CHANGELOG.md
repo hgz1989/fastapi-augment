@@ -20,6 +20,7 @@
 - **ASGI 应用校验放宽** — `validate_asgi_import` 不再限定 FastAPI，改为校验可调用的 ASGI 应用（与 uvicorn 运行要求一致）；新增 `common.asgi_types`（ASGI2/ASGI3 类型定义 + `is_asgi_app` 运行时近似判定）
 - **应用发现放宽** — `FastAPIAppSpec` / `discover_fastapi_apps` 更名为 `ASGIAppSpec` / `discover_asgi_apps`，发现范围由 FastAPI 实例放宽为可调用的 ASGI 应用（不限于 FastAPI）
 - **类型收窄修复** — `is_asgi_app` 返回类型由 `bool` 改为 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动收窄 `x`，修复 `_iter_exported_apps` 的 yield 类型不匹配报错
+- **测试同步** — `tests/test_app_discovery.py` 由 19 例扩展至 23 例：新增普通 ASGI 函数（三参）、ASGI3 scope-only、非 callable 拒绝、非 FastAPI ASGI 应用发现四类用例
 
 ## [0.1.5] — 2026-09-21
 
