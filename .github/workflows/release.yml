@@ -1,10 +1,11 @@
 # ============================================================
-# Release：代码门禁 + 打包源码 + GitHub Release + PyPI
+# Release：代码门禁 + GitHub Release + PyPI
 #
 # 流程（push master 或手动触发）：
 #   Job1 release：
-#     版本守卫 → 代码门禁（ruff + pytest + mypy）→ 打包 zip/tar.gz → 上传 GitHub Release
-#     （tag 由 gh release create 自动创建，失败不留半成品）
+#     版本守卫 → 代码门禁（ruff + pytest + mypy）→ 创建 GitHub Release
+#     （tag 由 gh release create 自动创建，失败不留半成品；
+#      Release 的源码包 Source code (zip/tar.gz) 由 GitHub 自动生成，无需自行打包上传）
 #   Job2 publish（needs: release）：
 #     仅当 Release 成功后才执行——查 PyPI 是否已有该版本 → 没有则 build、twine check 并上传
 #     任何一步失败都不会发到 PyPI
@@ -15,7 +16,7 @@
 #
 # 触发方式：
 #   - 推送到 master（自动）
-#   - 手动触发（workflow_dispatch）：release=发布新版本；rebuild=重新打包指定版本
+#   - 手动触发（workflow_dispatch）：发布新版本
 #   —— 发布类操作仅 master 分支可执行（job 级 if 校验）
 # ============================================================
 name: Release
@@ -24,22 +25,9 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 操作类型（release=发布新版本；rebuild=重新打包指定版本）
-        type: choice
-        required: true
-        default: release
-        options:
-          - release
-          - rebuild
-      rebuild_tag:
-        description: 要重新打包的版本 tag（rebuild 时填写，如 v1.2.3）
-        type: string
-        required: false
+    # 手动触发发布新版本（无额外输入）
 
 env:
-  APP_NAME: fastapi_augment
   PYPI_PROJECT: fastapi-augment
 
 # 同一时间只允许一个发布流程，防止并发
@@ -61,7 +49,7 @@ jobs:
           fetch-depth: 0  # 拉取全部历史与 tag
 
       # 版本守卫：tag 与 Release 都存在且版本一致才跳过；缺任一则补齐；
-      # rebuild 模式放行；手动触发若版本已完整则报错引导先更新 VERSION
+      # 手动触发若版本已完整则报错引导先更新 VERSION
       - name: Check version change
         id: versioncheck
         env:
@@ -69,25 +57,20 @@ jobs:
         run: |
           CODE_VERSION=$(cat VERSION)
           TARGET="v$CODE_VERSION"
-          if [ "${{ inputs.mode }}" = "rebuild" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "rebuild 模式：直接放行"
-          else
-            TAG_EXISTS=$(git rev-parse "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
-            RELEASE_EXISTS=$(gh release view "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
-            echo "版本 $CODE_VERSION：tag=$TAG_EXISTS release=$RELEASE_EXISTS"
-            if [ "$TAG_EXISTS" = "yes" ] && [ "$RELEASE_EXISTS" = "yes" ]; then
-              if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-                echo "::error::$TARGET 的 tag 与 Release 均已存在，请先在 develop 更新 VERSION 再手动发布"
-                exit 1
-              else
-                echo "changed=false" >> "$GITHUB_OUTPUT"
-                echo "tag 与 Release 均已存在，跳过发布"
-              fi
+          TAG_EXISTS=$(git rev-parse "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+          RELEASE_EXISTS=$(gh release view "$TARGET" >/dev/null 2>&1 && echo yes || echo no)
+          echo "版本 $CODE_VERSION：tag=$TAG_EXISTS release=$RELEASE_EXISTS"
+          if [ "$TAG_EXISTS" = "yes" ] && [ "$RELEASE_EXISTS" = "yes" ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "::error::$TARGET 的 tag 与 Release 均已存在，请先在 develop 更新 VERSION 再手动发布"
+              exit 1
             else
-              echo "changed=true" >> "$GITHUB_OUTPUT"
-              echo "缺少 tag 或 Release，继续补齐"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "tag 与 Release 均已存在，跳过发布"
             fi
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "缺少 tag 或 Release，继续补齐"
           fi
 
       # 发布门禁：确认需要发布（守卫 changed=true）后，发布前最后再验证一次代码——
@@ -120,12 +103,7 @@ jobs:
       - name: Resolve target version
         id: resolve
         if: steps.versioncheck.outputs.changed == 'true'
-        run: |
-          if [ "${{ inputs.mode }}" = "rebuild" ]; then
-            python .github/scripts/release_version.py --mode rebuild --rebuild-tag "${{ inputs.rebuild_tag }}"
-          else
-            python .github/scripts/release_version.py --mode release
-          fi
+        run: python .github/scripts/release_version.py --mode release
 
       # 版本一致性校验：目标版本与代码版本不一致时终止并引导
       - name: Check version consistency
@@ -136,32 +114,18 @@ jobs:
           echo "通过 PR 合并到 master 后重新触发发布"
           exit 1
 
-      # rebuild 模式：检出目标 tag 对应代码重新打包
-      - name: Checkout rebuild tag
-        if: inputs.mode == 'rebuild'
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.rebuild_tag }}
-
-      # ---------- 打包源码（打包成功后才上传 Release；失败不留半成品）----------
-      - name: Package source
-        if: steps.versioncheck.outputs.changed == 'true'
-        run: python .github/scripts/release_package.py "${{ steps.resolve.outputs.final_version }}"
-
-      # 上传 Release：tag 由 gh release create 自动创建——Release 成功时 tag 必然存在
-      - name: Create or update Release
+      # 创建 Release：tag 由 gh release create 自动创建——Release 成功时 tag 必然存在。
+      # 源码包（Source code zip/tar.gz）由 GitHub 在创建 Release 时自动生成，无需自行打包上传。
+      - name: Create Release
         if: steps.versioncheck.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.resolve.outputs.final_version }}"
-          ASSETS="dist-release/${{ env.APP_NAME }}-${VERSION}.zip dist-release/${{ env.APP_NAME }}-${VERSION}.tar.gz"
-          if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            gh release upload "v${VERSION}" $ASSETS --clobber
-          else
-            gh release create "v${VERSION}" $ASSETS --title "Release v${VERSION}" --generate-notes
+          if ! gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release create "v${VERSION}" --title "Release v${VERSION}" --generate-notes
           fi
-          echo "Release v${VERSION} 已就绪，资产: $ASSETS"
+          echo "Release v${VERSION} 已就绪（源码包由 GitHub 自动生成）"
 
   # PyPI 发布：必须等 release job（GitHub Release）成功后才执行——
   # Release 任何一步失败，本 job 自动跳过，绝不会发出半成品到 PyPI
