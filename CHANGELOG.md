@@ -4,6 +4,20 @@
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **发布流程重构** — GitHub Release 与 PyPI 发布合并为单个 `release.yml` workflow：
+  - publish Job `needs: release`，**仅当 GitHub Release 成功后才上传 PyPI**，Release 失败不会发出半成品
+  - tag 不再单独打，由 `gh release create` 自动创建——Release 成功时 tag 必然存在，杜绝"有 tag 无 Release"不一致
+  - 版本守卫改为"tag 与 Release 均存在且与代码版本一致才跳过"（push 跳过 / 手动触发报错引导先更新 `VERSION`）
+  - publish Job 以 PyPI 线上版本为准（JSON API 查 404 才上传），版本不可覆盖、天然不重复
+  - PyPI 发布改用 `PYPI_API_TOKEN`（GitHub Secrets）认证
+  - 发布前增加代码门禁（pytest + ruff），防止绕过分支保护发布未验证代码
+- **CI 重构** — `lint.yml` 升级为 CI workflow（Ruff + Pytest 3.11/3.12/3.13 矩阵），仅 PR / develop push 触发，PR 阶段不打包、不打 tag、不发布
+- **发布门禁加固** — `health.checkers` 的 sqlalchemy 改为函数内惰性导入，未安装可选依赖时 `DatabaseChecker` 降级为 unhealthy 而非崩溃；CI 安装 `--all-extras`
+
 ## [0.1.5] — 2026-09-21
 
 ### Added
