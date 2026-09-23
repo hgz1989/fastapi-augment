@@ -5,12 +5,10 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import Field
 
 from .base import SchemaBase
-
+from .types import BeijingDatetime
 
 class PageParams(SchemaBase):
     """通用分页请求参数"""
@@ -20,8 +18,8 @@ class PageParams(SchemaBase):
 
 class TimeRangeParams(SchemaBase):
     """通用时间范围查询参数"""
-    start_time: datetime | None = Field(default=None, description='开始时间')
-    end_time: datetime | None = Field(default=None, description='结束时间')
+    start_time: BeijingDatetime | None = Field(default=None, description='开始时间')
+    end_time: BeijingDatetime | None = Field(default=None, description='结束时间')
 
 
 class KeywordParams(SchemaBase):

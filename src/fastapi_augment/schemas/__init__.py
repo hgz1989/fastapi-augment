@@ -15,6 +15,7 @@ from .response import (
     response_success,
     response_fail
 )
+from .types import BeijingDatetime
 
 __all__ = [
     # base
@@ -29,5 +30,7 @@ __all__ = [
     # response
     'APIResponse',
     'response_success',
-    'response_fail'
+    'response_fail',
+    # types
+    'BeijingDatetime'
 ]
