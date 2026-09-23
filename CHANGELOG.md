@@ -19,6 +19,7 @@
 - **发布门禁加固** — `health.checkers` 的 sqlalchemy 改为函数内惰性导入，未安装可选依赖时 `DatabaseChecker` 降级为 unhealthy 而非崩溃；CI 安装 `--all-extras`
 - **ASGI 应用校验放宽** — `validate_asgi_import` 不再限定 FastAPI，改为校验可调用的 ASGI 应用（与 uvicorn 运行要求一致）；新增 `common.asgi_types`（ASGI2/ASGI3 类型定义 + `is_asgi_app` 运行时近似判定）
 - **应用发现放宽** — `FastAPIAppSpec` / `discover_fastapi_apps` 更名为 `ASGIAppSpec` / `discover_asgi_apps`，发现范围由 FastAPI 实例放宽为可调用的 ASGI 应用（不限于 FastAPI）
+- **类型收窄修复** — `is_asgi_app` 返回类型由 `bool` 改为 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动收窄 `x`，修复 `_iter_exported_apps` 的 yield 类型不匹配报错
 
 ## [0.1.5] — 2026-09-21
 
@@ -29,7 +30,7 @@
   - `ASGIAppSpec` — 应用装载信息（模块 / 导出名 / 实例 / `import_string`）
   - **`tests/test_app_discovery.py`** — 新增应用发现模块单元测试，覆盖 `validate_asgi_import` / `ASGIAppSpec` / `discover_asgi_apps`（19 例）
   - **CI 分支约束与自动发布** — 发布类操作（Release 打 tag / 上传、PyPI 发布）仅 `master` 分支可执行；`master` 为受保护分支，禁止直接提交代码，仅允许 PR 合并；合并到 `master` 且 `VERSION` 有变更时自动触发发布（手动触发不受守卫限制）
-  - `validate_asgi_import` — 校验 ASGI 应用导入串真实存在且为 FastAPI 实例
+  - `validate_asgi_import` — 校验 ASGI 应用导入串真实存在且为可调用的 ASGI 应用
 - **Release 发布流程** — 新增 `.github/workflows/release.yml` 与配套脚本：
   - 版本决策规则：无 tag 用代码版本 / 代码版本 > 最高 tag 用代码版本 / 否则以最高 tag 版本为准
   - 自动同步 `VERSION` 与 `factory.py` 中 `create_app` 默认版本并提交

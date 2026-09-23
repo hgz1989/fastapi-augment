@@ -807,9 +807,9 @@ request_id = get_request_id()
 
 ### 应用发现 — `common.app_discovery`
 
-递归发现 `apps` 包下所有子包通过 `__all__` 导出的 FastAPI 应用实例，用于多应用聚合部署与启动前校验。
+递归发现 `apps` 包下所有子包通过 `__all__` 导出的 ASGI 应用（不限于 FastAPI），用于多应用聚合部署与启动前校验。
 
-**约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 FastAPI 实例（如 `platform_app`）；只有出现在 `__all__` 且确实是 `FastAPI` 实例的对象才被识别为"应用"。
+**约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 ASGI 应用（如 `platform_app`，不限于 FastAPI 实例）；只有出现在 `__all__` 且通过 `is_asgi_app` 判定的对象才被识别为"应用"（判定规则见下）。
 
 ```python
 from fastapi_augment.common import ASGIAppSpec, discover_asgi_apps, validate_asgi_import
@@ -829,7 +829,7 @@ validate_asgi_import('apps.platform:platform_app')
 - 结果按模块名排序，顺序稳定
 - **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI 应用（Starlette / Flask 等或自定义 ASGI 函数，判定规则见下）均通过
 
-**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGIApplication` / `ASGI2Application` / `ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI2（类，scope 单参）或 ASGI3（`scope, receive, send` 三参）结构。签名判定为近似，权威判定以 uvicorn 实际启动为准。
+**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGIApplication` / `ASGI2Application` / `ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`（返回 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动将 `x` 收窄为 ASGI 应用）：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI2（类，scope 单参）或 ASGI3（`scope, receive, send` 三参）结构，`*args` 包装器放行。签名判定为近似，权威判定以 uvicorn 实际启动为准。
 
 ## 开发与发布
 
@@ -894,7 +894,7 @@ publish Job 以 PyPI 线上版本为准（查询 `pypi.org/pypi/<project>/<versi
 fastapi_augment/
 ├── common/
 │   ├── app_discovery.py      # ASGI 应用发现（__all__ 约定）
-│   ├── asgi_types.py         # ASGI 类型定义与 is_asgi_app 运行时判定
+│   ├── asgi_types.py         # ASGI 类型定义与 is_asgi_app 运行时判定（TypeGuard）
 │   ├── constants.py          # 全局常量与默认错误文案
 │   ├── exceptions.py         # 4xx HTTP 异常体系
 │   ├── exception_handlers.py # 全局异常处理器
