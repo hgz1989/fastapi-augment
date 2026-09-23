@@ -25,7 +25,7 @@ _oj_dumps: Any = None
 _oj_loads: Any = None
 
 try:
-    import orjson as _orjson  # type: ignore[import-untyped]
+    import orjson as _orjson
     ORJSON_INSTALLED = True
     ORJSON_DEFAULT_OPTS = _orjson.OPT_SERIALIZE_NUMPY | _orjson.OPT_UTC_Z
     _oj_dumps = _orjson.dumps
@@ -34,8 +34,9 @@ except ImportError:
     pass
 
 
-# orjson OPT_INDENT_2 的常量值，避免直接依赖 orjson 安装
-_ORJSON_OPT_INDENT_2 = 0x04
+# orjson OPT_INDENT_2 的常量值（1），避免直接依赖 orjson 安装；
+# 注意该值并非 0x04（0x04 是 OPT_NON_STR_KEYS），曾导致缩进不生效
+_ORJSON_OPT_INDENT_2 = 0x01
 
 
 # ── 字符串转换 ──

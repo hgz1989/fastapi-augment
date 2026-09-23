@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Generic, overload
+from typing import Generic, cast, overload
 
 from pydantic import Field
 
@@ -109,7 +109,7 @@ def response_success(
     Returns:
         APIResponse[T, E]
     """
-    return build_response(code=CODE_SUCCESS, message=message, data=data, extra=extra)
+    return build_response(code=CODE_SUCCESS, message=message, data=cast(T, data), extra=cast(E, extra))
 
 
 @overload
@@ -136,4 +136,4 @@ def response_fail(
     Returns:
         APIResponse[None, E]
     """
-    return build_response(code=code, message=message, extra=extra)
+    return build_response(code=code, message=message, extra=cast(E, extra))

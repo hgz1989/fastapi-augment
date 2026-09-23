@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 from urllib.parse import parse_qsl
 
 from pydantic import (
@@ -19,7 +19,7 @@ try:
     from sqlalchemy import URL
 
 except ImportError:
-    URL = None
+    URL = None  # type: ignore[misc, assignment]
 
 _SQLALCHEMY_INSTALL_MSG = '使用数据库功能需要安装 sqlalchemy 库: pip install "fastapi-augment[sqlalchemy]"'
 
@@ -190,7 +190,7 @@ class DatabaseSettings(BaseModel):
             raise ImportError(_SQLALCHEMY_INSTALL_MSG)
 
         query = self._build_query()
-        extra = {'query': query} if query is not None else {}
+        extra: dict[str, Any] = {'query': query} if query is not None else {}
 
         if self.is_file_based:
             return URL.create(

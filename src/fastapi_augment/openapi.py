@@ -5,7 +5,7 @@
 """
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
@@ -44,7 +44,7 @@ def configure_openapi_schema(
 
         try:
             # 兼容低版本fastapi，过滤不存在的参数
-            kwargs = {
+            kwargs: dict[str, Any] = {
                 'title': app.title,
                 'version': app.version,
                 'openapi_version': app.openapi_version,
@@ -90,5 +90,5 @@ def configure_openapi_schema(
         app.openapi_schema = openapi_schema
         return app.openapi_schema
 
-    # 替换openapi生成函数；去除 type: ignore，类型是FastAPI内部动态属性
-    app.openapi = custom_openapi
+    # 替换 openapi 生成函数（FastAPI 内部动态属性；cast 避免 mypy method-assign 报错）
+    cast(Any, app).openapi = custom_openapi

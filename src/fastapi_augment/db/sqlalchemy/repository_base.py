@@ -91,7 +91,7 @@ class RepositoryBase(Generic[ModelT]):
             TypeError: If no model type can be inferred.
         """
         # noinspection PyUnresolvedReferences
-        for base in cls.__orig_bases__:
+        for base in getattr(cls, '__orig_bases__', ()):
             args = typing.get_args(base)
             if args and isinstance(args[0], type) and issubclass(args[0], ModelBase):
                 return cast(type[ModelT], args[0])

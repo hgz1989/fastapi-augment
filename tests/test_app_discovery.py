@@ -110,7 +110,7 @@ class TestValidateAsgiImport:
         async def app(scope, receive, send):
             ...
 
-        module.app = app
+        module.app = app  # type: ignore[attr-defined]
         monkeypatch.setitem(_sys_modules, 'fake_asgi_mod', module)
         validate_asgi_import('fake_asgi_mod:app')
 
@@ -124,13 +124,13 @@ class TestValidateAsgiImport:
 
             return handler
 
-        module.app = app
+        module.app = app  # type: ignore[attr-defined]
         monkeypatch.setitem(_sys_modules, 'fake_asgi3_mod', module)
         validate_asgi_import('fake_asgi3_mod:app')
 
     def test_non_callable_raises(self, monkeypatch: pytest.MonkeyPatch):
         module = ModuleType('fake_bad_mod')
-        module.app = 'not-a-callable'
+        module.app = 'not-a-callable'  # type: ignore[attr-defined]
         monkeypatch.setitem(_sys_modules, 'fake_bad_mod', module)
         with pytest.raises(RuntimeError, match='不是可调用的 ASGI 应用'):
             validate_asgi_import('fake_bad_mod:app')

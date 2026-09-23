@@ -177,4 +177,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(BaseHttpError, base_http_error_handler)  # type: ignore
     app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore
     app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
-    app.add_exception_handler(Exception, general_exception_handler)  # type: ignore
+    app.add_exception_handler(Exception, general_exception_handler)

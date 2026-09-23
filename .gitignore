@@ -18,3 +18,7 @@ build/
 
 # uv缓存
 .uv/
+
+# pytest 覆盖率数据
+.coverage
+.coverage.*

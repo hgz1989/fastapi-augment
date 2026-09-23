@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import Enum
 
 from fastapi import APIRouter, Request, Response
 
@@ -25,7 +26,7 @@ from .checkers import AppChecker, DatabaseChecker
 def create_health_router(
     *,
     path: str = '/health',
-    tags: list[str] | None = None,
+    tags: list[str | Enum] | None = None,
     include_db_check: bool = True,
     extra_checkers: Sequence[BaseChecker] | None = None,
 ) -> APIRouter:

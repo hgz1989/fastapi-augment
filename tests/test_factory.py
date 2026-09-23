@@ -23,7 +23,7 @@ class TestCreateAppBasic:
     def test_default_metadata(self):
         app = create_app()
         assert app.title == 'FastAPI Augment'
-        assert app.version == '0.1.5'
+        assert app.version == '0.1.6'
         assert app.description.startswith('FastAPI Augment')
 
     def test_custom_metadata(self):
@@ -49,7 +49,7 @@ class TestCreateAppLifespan:
 
     def test_reject_lifespan_in_kwargs(self):
         with pytest.raises(ValueError, match='不允许通过 kwargs 传递 lifespan'):
-            create_app(lifespan=lambda app: app)  # type: ignore
+            create_app(lifespan=lambda app: app)
 
     def test_lifespan_context_is_set(self):
         from fastapi_augment.lifespan import fastapi_lifespan
@@ -106,7 +106,7 @@ class TestCreateAppRouters:
 
     def test_invalid_router_type_raises(self):
         with pytest.raises(TypeError, match='routers 元素必须为'):
-            create_app(routers=['not_a_router'])  # type: ignore
+            create_app(routers=['not_a_router'])
 
     def test_route_registrars(self):
         called = []

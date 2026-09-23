@@ -221,7 +221,7 @@ class TestGeneralExceptionHandler:
 
         @app.get('/type_err')
         async def type_err():
-            return 'string' + 123  # type: ignore
+            return 'string' + 123
 
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get('/type_err')

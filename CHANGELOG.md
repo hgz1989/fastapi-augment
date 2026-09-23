@@ -21,6 +21,11 @@
 - **应用发现放宽** — `FastAPIAppSpec` / `discover_fastapi_apps` 更名为 `ASGIAppSpec` / `discover_asgi_apps`，发现范围由 FastAPI 实例放宽为可调用的 ASGI 应用（不限于 FastAPI）
 - **类型收窄修复** — `is_asgi_app` 返回类型由 `bool` 改为 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动收窄 `x`，修复 `_iter_exported_apps` 的 yield 类型不匹配报错
 - **测试同步** — `tests/test_app_discovery.py` 由 19 例扩展至 23 例：新增普通 ASGI 函数（三参）、ASGI3 scope-only、非 callable 拒绝、非 FastAPI ASGI 应用发现四类用例
+- **Mypy 类型检查门禁** — 新增 `[tool.mypy]` 配置（Python 3.11、`files=["src","tests"]`、`warn_unused_ignores`、`no_implicit_optional`），`mypy>=1.10` 加入 dev 依赖；62 项类型错误全部修复归零；CI 新增 **Mypy** Job，发布门禁同步增加 mypy 检查
+- **覆盖率门禁** — `pytest-cov>=5.0` 加入 dev 依赖；pytest `addopts` 配置 `--cov=fastapi_augment --cov-report=term-missing --cov-fail-under=90`，覆盖率不足 90% 时测试失败（当前实测 92.66%）
+- **新增 `tests/test_strings.py`** — 字符串工具函数首个测试文件（24 例），覆盖命名转换 / 随机串 / JSON 序列化双分支（orjson 与标准库 fallback），使覆盖率突破 90% 门禁
+- **修复 orjson 缩进 bug** — `common.utils.strings` 中 `_ORJSON_OPT_INDENT_2` 硬编码为 `0x04`，实际 orjson `OPT_INDENT_2` 常量为 `1`（`0x04` 是 `OPT_NON_STR_KEYS`），导致 `compact=False` 缩进从未生效；已修正
+- **打包校验** — 发布链 publish Job 增加 `twine check` 步骤，上传 PyPI 前校验 sdist/wheel 元数据合法性
 
 ## [0.1.5] — 2026-09-21
 

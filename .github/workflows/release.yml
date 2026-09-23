@@ -3,10 +3,10 @@
 #
 # 流程（push master 或手动触发）：
 #   Job1 release：
-#     版本守卫 → 代码门禁（ruff + pytest）→ 打包 zip/tar.gz → 上传 GitHub Release
+#     版本守卫 → 代码门禁（ruff + pytest + mypy）→ 打包 zip/tar.gz → 上传 GitHub Release
 #     （tag 由 gh release create 自动创建，失败不留半成品）
 #   Job2 publish（needs: release）：
-#     仅当 Release 成功后才执行——查 PyPI 是否已有该版本 → 没有则 build 并上传
+#     仅当 Release 成功后才执行——查 PyPI 是否已有该版本 → 没有则 build、twine check 并上传
 #     任何一步失败都不会发到 PyPI
 #
 # 守卫规则：
@@ -112,6 +112,10 @@ jobs:
         if: steps.versioncheck.outputs.changed == 'true'
         run: uvx ruff check src tests
 
+      - name: Run mypy
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uv run mypy src tests
+
       # ---------- 解析目标版本 ----------
       - name: Resolve target version
         id: resolve
@@ -207,6 +211,13 @@ jobs:
             exit 1
           }
           echo "构建产物版本 $EXPECTED 与 VERSION/tag 一致"
+
+      # 打包校验：twine check 确保 sdist/wheel 元数据合法（README、版本、许可证等）
+      - name: Twine check
+        if: steps.pypicheck.outputs.changed == 'true'
+        run: |
+          pip install twine
+          twine check dist/*
 
       - name: Publish to PyPI
         if: steps.pypicheck.outputs.changed == 'true'

@@ -1,6 +1,6 @@
 name: CI
 
-# PR 阶段检查门禁：Ruff + Pytest 全部通过才允许合并到 master
+# PR 阶段检查门禁：Ruff + Pytest（含覆盖率）+ Mypy 全部通过才允许合并到 master
 # 开发分支 push（develop）同样触发，提供快速反馈
 # 注意：这里只做检查，不打包、不打 tag、不创建 Release——发布由 push master 触发
 
@@ -23,6 +23,27 @@ jobs:
       - name: Run ruff
         run: uvx ruff check src tests
 
+  typecheck:
+    name: Mypy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.0
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: uv sync --group dev --all-extras
+
+      - name: Run mypy
+        run: uv run mypy src tests
+
   test:
     name: Pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -44,5 +65,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --all-extras
 
+      # 覆盖率门禁（--cov-fail-under=90）在 pyproject.toml 的 addopts 中配置，此处自动生效
       - name: Run tests
         run: uv run pytest -q

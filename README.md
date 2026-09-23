@@ -845,23 +845,27 @@ validate_asgi_import('apps.platform:platform_app')
 # lint（读取 pyproject.toml 的 [tool.ruff] 配置）
 uvx ruff check src tests
 
-# 测试
+# 类型检查（读取 pyproject.toml 的 [tool.mypy] 配置）
+uv run mypy src tests
+
+# 测试（覆盖率门禁 --cov-fail-under=90 在 pyproject.toml 的 pytest addopts 中配置）
 uv run --frozen pytest -q
 ```
 
 CI（`.github/workflows/lint.yml`，即 **CI** workflow）已配置自动检查，PR / develop push 时运行：
 
 - **Ruff** — `uvx ruff check src tests`
-- **Pytest** — Python 3.11 / 3.12 / 3.13 矩阵并行
+- **Mypy** — `uv run mypy src tests`（Python 3.11）
+- **Pytest** — Python 3.11 / 3.12 / 3.13 矩阵并行，覆盖率不低于 90%（`--cov-fail-under=90`）
 
-两个 Job 全部通过才允许合并到 `master`（分支保护所需状态检查为 `Ruff` 与 `Pytest (Python x.y)`）。PR 阶段只做检查，不打包、不打 tag、不发布。
+三个 Job 全部通过才允许合并到 `master`（分支保护所需状态检查为 `Ruff`、`Mypy` 与 `Pytest (Python x.y)`）。PR 阶段只做检查，不打包、不打 tag、不发布。
 
 ### 发布 Release
 
 单个 workflow（`.github/workflows/release.yml`）串行完成 GitHub Release 与 PyPI 发布，两个 Job：
 
-1. **release Job** — 版本守卫 → 代码门禁（pytest + ruff）→ 源码打包（zip / tar.gz）→ 上传 GitHub Release（tag 由 `gh release create` 自动创建，成功时 tag 必然存在）
-2. **publish Job**（`needs: release`）— **仅当 GitHub Release 成功后才执行**：查 PyPI 是否已有该版本（无则上传）→ build → 版本一致性断言 → 上传 PyPI
+1. **release Job** — 版本守卫 → 代码门禁（pytest + ruff + mypy）→ 源码打包（zip / tar.gz）→ 上传 GitHub Release（tag 由 `gh release create` 自动创建，成功时 tag 必然存在）
+2. **publish Job**（`needs: release`）— **仅当 GitHub Release 成功后才执行**：查 PyPI 是否已有该版本（无则上传）→ build → 版本一致性断言 → `twine check` 校验打包 → 上传 PyPI
 
 触发方式：
 
@@ -880,11 +884,11 @@ publish Job 以 PyPI 线上版本为准（查询 `pypi.org/pypi/<project>/<versi
 
 发布类操作仅 master 分支可执行，任何一步失败都不会产生半成品：
 
-1. **代码门禁** — 判定需要发布时先跑 pytest + ruff，任一失败即停止（防止绕过分支保护发布未验证代码）
+1. **代码门禁** — 判定需要发布时先跑 pytest + ruff + mypy，任一失败即停止（防止绕过分支保护发布未验证代码）
 2. **版本一致性校验** — 目标版本与代码版本不一致时终止并引导（master 受保护，需先在 `develop` 更新 `VERSION` 与 `factory.py` 版本，PR 合并后重试）
 3. **打包** — 源码打包为 `fastapi_augment-<版本>.zip` / `.tar.gz`（排除 `.venv`、缓存、构建产物）
 4. **Release** — 打包成功后才上传 GitHub Release；失败不留任何 tag/Release，重试不会跳版本
-5. **PyPI** — Release 成功后才上传，使用 `PYPI_API_TOKEN`（GitHub Secrets）认证
+5. **PyPI** — Release 成功后才上传，上传前经 `twine check` 校验 sdist/wheel 元数据，使用 `PYPI_API_TOKEN`（GitHub Secrets）认证
 
 建议发布前先在 `develop` 分支完成版本号更新并 PR 合并到 `master`——合并触发自动发布，发布流程将直接复用代码版本。
 
