@@ -235,6 +235,7 @@ class TestRepositoryUpdate:
         assert affected == 1
 
         fetched = await repo.get(session, item.id)
+        assert fetched is not None
         assert fetched.name == 'bob_updated'
 
     async def test_update_by_id_not_found(self, session: AsyncSession, repo: RepositoryBase):
@@ -372,7 +373,7 @@ class TestRepositorySubclass:
 
     def test_no_model_raises_type_error(self):
         """既无泛型参数又无显式 model 时抛出 TypeError"""
-        class BadRepo(RepositoryBase):  # type: ignore[type-arg]
+        class BadRepo(RepositoryBase):
             pass
 
         with pytest.raises(TypeError, match='must either pass a model class'):

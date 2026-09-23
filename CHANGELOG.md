@@ -4,16 +4,56 @@
 
 ---
 
+## [0.1.6] — 2026-09-23
+
+### Added
+
+- **北京时间类型支持** — 新增 `BeijingDatetime` 类型（继承自 `datetime`），数据库 UTC 时间序列化为北京时间字符串；`TimeRangeParams` 的时间字段改用该类型；schemas 入口文件导出 `BeijingDatetime`，接口返回示例同步更新
+
+### Changed
+
+- **发布流程重构** — GitHub Release 与 PyPI 发布合并为单个 `release.yml` workflow：
+  - publish Job `needs: release`，**仅当 GitHub Release 成功后才上传 PyPI**，Release 失败不会发出半成品
+  - tag 不再单独打，由 `gh release create` 自动创建——Release 成功时 tag 必然存在，杜绝"有 tag 无 Release"不一致
+  - 版本守卫改为"tag 与 Release 均存在且与代码版本一致才跳过"（push 跳过 / 手动触发报错引导先更新 `VERSION`）
+  - publish Job 以 PyPI 线上版本为准（JSON API 查 404 才上传），版本不可覆盖、天然不重复
+  - PyPI 发布改用 `PYPI_API_TOKEN`（GitHub Secrets）认证
+  - 发布前增加代码门禁（pytest + ruff），防止绕过分支保护发布未验证代码
+- **CI 重构** — `lint.yml` 升级为 CI workflow（Ruff + Pytest 3.11/3.12/3.13 矩阵），仅 PR / develop push 触发，PR 阶段不打包、不打 tag、不发布
+- **发布门禁加固** — `health.checkers` 的 sqlalchemy 改为函数内惰性导入，未安装可选依赖时 `DatabaseChecker` 降级为 unhealthy 而非崩溃；CI 安装 `--all-extras`
+- **ASGI 应用校验放宽** — `validate_asgi_import` 不再限定 FastAPI，改为校验可调用的 ASGI 应用（与 uvicorn 运行要求一致）；新增 `common.asgi_types`（ASGI2/ASGI3 类型定义 + `is_asgi_app` 运行时近似判定）
+- **应用发现放宽** — `FastAPIAppSpec` / `discover_fastapi_apps` 更名为 `ASGIAppSpec` / `discover_asgi_apps`，发现范围由 FastAPI 实例放宽为可调用的 ASGI 应用（不限于 FastAPI）
+- **类型收窄修复** — `is_asgi_app` 返回类型由 `bool` 改为 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动收窄 `x`，修复 `_iter_exported_apps` 的 yield 类型不匹配报错
+- **测试同步** — `tests/test_app_discovery.py` 由 19 例扩展至 23 例：新增普通 ASGI 函数（三参）、ASGI3 scope-only、非 callable 拒绝、非 FastAPI ASGI 应用发现四类用例
+- **Mypy 类型检查门禁** — 新增 `[tool.mypy]` 配置（Python 3.11、`files=["src","tests"]`、`warn_unused_ignores`、`no_implicit_optional`），`mypy>=1.10` 加入 dev 依赖；62 项类型错误全部修复归零；CI 新增 **Mypy** Job，发布门禁同步增加 mypy 检查
+- **覆盖率门禁** — `pytest-cov>=5.0` 加入 dev 依赖；pytest `addopts` 配置 `--cov=fastapi_augment --cov-report=term-missing --cov-fail-under=90`，覆盖率不足 90% 时测试失败（当前实测 92.66%）
+- **新增 `tests/test_strings.py`** — 字符串工具函数首个测试文件（24 例），覆盖命名转换 / 随机串 / JSON 序列化双分支（orjson 与标准库 fallback），使覆盖率突破 90% 门禁
+- **修复 orjson 缩进 bug** — `common.utils.strings` 中 `_ORJSON_OPT_INDENT_2` 硬编码为 `0x04`，实际 orjson `OPT_INDENT_2` 常量为 `1`（`0x04` 是 `OPT_NON_STR_KEYS`），导致 `compact=False` 缩进从未生效；已修正
+- **Repository 软删除收尾** — `RepositoryBase` 对混入 `SoftDeleteMixin` 的模型自动感知：
+  - 查询族（`get` / `get_unique` / `get_first` / `list` / `count` / `paginate` / `exists`）默认排除已软删行，新增 `include_deleted=True` 参数放开
+  - 删除族（`delete` / `delete_by_id` / `delete_where`）对软删模型自动转软删（写 `is_deleted=True` + `deleted_at`），非软删模型保持物理删除
+  - 新增 `hard_delete_by_id` / `hard_delete_where` 显式物理删除；`delete_by_id` 软删后显式同步已加载实例，避免 stale 读取
+- **Repository 聚合与批量更新** — 新增 `sum` / `avg` / `min` / `max` 数值列聚合（与软删过滤联动，支持过滤条件）与 `update_where` 条件批量更新（单条 UPDATE，返回受影响行数）
+- **新增 `tests/test_soft_delete.py`** — 软删除收尾与聚合能力测试（33 例），覆盖默认过滤 / `include_deleted` / 软删转删除 / 物理删除 / 聚合联动 / 批量更新 / 非软删模型回归；全量 537 passed，覆盖率 92.74%
+- **打包校验** — 发布链 publish Job 增加 `twine check` 步骤，上传 PyPI 前校验 sdist/wheel 元数据合法性
+- **EngineManager 兼容 SQLite** — `_create_engine` 对 SQLite 节点不再传递 QueuePool 参数（pool_size / max_overflow / pool_timeout / pool_recycle / pool_pre_ping），SQLite 使用 NullPool 不接受这些参数；修复 `EngineManager` + `sqlite+aiosqlite` 组合创建引擎报 `Invalid argument(s) sent to create_engine()` 的问题（示例工程验证中发现）
+- **新增完整可跑示例工程 `examples/quickstart`** — 沉淀自真实业务项目（browser-proxy）的工程模式：
+  - 三段式配置（全局 `QUICKSTART_` / 项目 `_PROJECT_` / Uvicorn `_UVICORN_` 前缀独立）
+  - 模块级日志（reload / 多 worker spawn 子进程配置一致）+ `validate_asgi_import` + `uvicorn.run`
+  - 组合根装配：`HookRegistry` 启动建表 / 关闭释放连接池，`create_app(health_check=True)` 一键装配
+  - 示例业务子包 `apps.api`：`TimestampMixin` + `SoftDeleteMixin` 模型、`SchemaBase` / `ORMSchemaBase` DTO、`RepositoryBase` CRUD + 软删除 + 聚合
+  - 8 例 API 冒烟测试（临时 SQLite 文件库，读写会话数据共享）；README 快速开始新增「完整可跑示例」指引
+
 ## [0.1.5] — 2026-09-21
 
 ### Added
 
-- **`common.app_discovery`** — 新增 FastAPI 应用发现模块：
-  - `discover_fastapi_apps` — 递归发现 `apps` 子包通过 `__all__` 导出的 FastAPI 应用，支持 `exclude`（模块名 / 导出名 / `module:name` 导入串三种标识），结果按模块名排序
-  - `FastAPIAppSpec` — 应用装载信息（模块 / 导出名 / 实例 / `import_string`）
-  - **`tests/test_app_discovery.py`** — 新增应用发现模块单元测试，覆盖 `validate_asgi_import` / `FastAPIAppSpec` / `discover_fastapi_apps`（19 例）
+- **`common.app_discovery`** — 新增应用发现模块：
+  - `discover_asgi_apps` — 递归发现 `apps` 子包通过 `__all__` 导出的 ASGI 应用，支持 `exclude`（模块名 / 导出名 / `module:name` 导入串三种标识），结果按模块名排序
+  - `ASGIAppSpec` — 应用装载信息（模块 / 导出名 / 实例 / `import_string`）
+  - **`tests/test_app_discovery.py`** — 新增应用发现模块单元测试，覆盖 `validate_asgi_import` / `ASGIAppSpec` / `discover_asgi_apps`（19 例）
   - **CI 分支约束与自动发布** — 发布类操作（Release 打 tag / 上传、PyPI 发布）仅 `master` 分支可执行；`master` 为受保护分支，禁止直接提交代码，仅允许 PR 合并；合并到 `master` 且 `VERSION` 有变更时自动触发发布（手动触发不受守卫限制）
-  - `validate_asgi_import` — 校验 ASGI 应用导入串真实存在且为 FastAPI 实例
+  - `validate_asgi_import` — 校验 ASGI 应用导入串真实存在且为可调用的 ASGI 应用
 - **Release 发布流程** — 新增 `.github/workflows/release.yml` 与配套脚本：
   - 版本决策规则：无 tag 用代码版本 / 代码版本 > 最高 tag 用代码版本 / 否则以最高 tag 版本为准
   - 自动同步 `VERSION` 与 `factory.py` 中 `create_app` 默认版本并提交

@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fastapi-augment-quickstart"
+dynamic = ["version"]
+requires-python = ">=3.11"
+dependencies = [
+    "aiosqlite>=0.20.0",
+    "fastapi-augment[standard]>=0.1.6",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25.0",
+]
+
+# 版本号动态取自 src/config/settings.py 的 VERSION（唯一版本源，Python 侧维护）
+[tool.hatch.version]
+path = "src/config/settings.py"
+
+[tool.hatch.build.targets.wheel]
+# src 布局下声明顶层包，使项目可编辑安装（import apps / config / core 全局可用）
+packages = ["src/apps", "src/config", "src/core"]
+
+[tool.pytest.ini_options]
+# src 布局：让 pytest 能直接 import apps / config / core 顶层包
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+# pytest-asyncio：async 测试无需显式标记
+asyncio_mode = "auto"
+# starlette 内部类型别名仍引用 anyio.abc.BlockingPortal（上游已知问题），
+# 仅忽略该模块的这条 DeprecationWarning，其余警告保持可见
+filterwarnings = [
+    "ignore:.*BlockingPortal alias is deprecated.*:DeprecationWarning:starlette\\.testclient",
+]
+
+# ruff 规则与主库保持一致；FastAPI 路由中的 Depends() 默认参数属惯用法，豁免 B008
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9", "F",       # pycodestyle 基础子集 + pyflakes
+    "B", "UP", "SIM", "C4",      # bugbear / pyupgrade / 简化 / 集合字面量
+    "RET", "PLR1711", "TRY", "G", "BLE", "RUF",
+    "I", "DTZ", "PYI",
+]
+ignore = [
+    "I001",      # import 排序按《代码风格整理.md》人工维护（首次调用顺序 + 末项无逗号）
+    "RUF022",    # __all__ 按用途分组注释组织，可读性优于字母序
+    "RUF001",    # 中文代码库全角标点属正常书写，不视为混淆字符
+    "RUF002",
+    "RUF003",
+    "TRY003",    # 中文异常消息偏长，不强制抽象异常类
+    "G004",      # 与《代码风格整理.md》"统一使用 f-string" 规范冲突
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 路由中 Depends() 作参数默认值属惯用法，豁免 B008
+extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config", "core"]

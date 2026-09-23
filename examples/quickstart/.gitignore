@@ -1,0 +1,13 @@
+# 运行时产物
+data/
+logs/
+*.db
+
+# 环境与工具
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

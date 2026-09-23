@@ -17,7 +17,7 @@
 - **健康检查** — 可扩展的检查器模式，内置应用状态与数据库连通性检查，一行开关
 - **配置管理** — 基于 pydantic-settings，支持 `.env` 文件、环境变量前缀、嵌套配置
 - **数据库迁移 CLI** — 一行命令生成/执行迁移，自动发现用户模型
-- **应用发现** — 自动发现子包 `__all__` 导出的 FastAPI 应用，支持排除与导入串校验
+- **应用发现** — 自动发现子包 `__all__` 导出的 ASGI 应用（不限于 FastAPI），支持排除与导入串校验
 
 ## 安装
 
@@ -83,6 +83,19 @@ app = create_app(
     routers=[router],
 )
 ```
+
+### 完整可跑示例 — `examples/quickstart`
+
+上面的最小示例浓缩了核心 API；想看到**完整工程形态**（三段式配置、模块级日志、组合根装配、生命周期建表、软删除与聚合、统一响应、测试），直接运行示例工程：
+
+```bash
+cd examples/quickstart
+uv sync --all-groups          # 安装依赖（需 uv，Python >= 3.11）
+uv run python src/main.py     # 启动：http://127.0.0.1:8000/docs
+uv run --group dev pytest -q  # 跑测试（临时 SQLite，不落盘）
+```
+
+示例工程沉淀自真实业务项目（browser-proxy）的工程模式，与库文档各章节一一对应（配置组合示例 ↔ `src/config/`，数据库层 ↔ `src/core/database.py`，泛型仓储 ↔ `apps/api/router.py`），详见 `examples/quickstart/README.md`。
 
 ## 核心模块
 
@@ -265,6 +278,37 @@ async with sessions.transaction() as session:
     await user_repo.delete(session, user)
     deleted = await user_repo.delete_by_id(session, id_='01HXK...')
     count = await user_repo.delete_where(session, is_active=False)
+```
+
+**软删除感知（模型混入 `SoftDeleteMixin` 时自动生效，非软删模型行为不变）：**
+
+```python
+# 查询默认排除已软删行；include_deleted=True 可放开
+user = await user_repo.get(session, id_='01HXK...')        # 已软删 → None
+users = await user_repo.list(session, include_deleted=True)  # 包含已软删行
+total = await user_repo.count(session, include_deleted=True)
+
+# 删除自动转软删（写 is_deleted=True + deleted_at）；非软删模型仍为物理删除
+await user_repo.delete(session, user)
+deleted = await user_repo.delete_by_id(session, id_='01HXK...')
+count = await user_repo.delete_where(session, is_active=False)
+
+# 需要真正物理删除时显式调用 hard_delete_*
+await user_repo.hard_delete_by_id(session, id_='01HXK...')
+count = await user_repo.hard_delete_where(session, is_active=False)
+```
+
+**聚合与批量更新：**
+
+```python
+# 数值列聚合（默认排除已软删行，支持过滤条件；无匹配行返回 None）
+total_amount = await user_repo.sum(session, 'amount', role='admin')
+avg_amount = await user_repo.avg(session, 'amount')
+min_amount = await user_repo.min(session, 'amount')
+max_amount = await user_repo.max(session, 'amount')
+
+# 批量更新（单条 UPDATE，返回受影响行数；默认跳过已软删行）
+affected = await user_repo.update_where(session, {'role': 'admin'}, name='alice')
 ```
 
 **过滤语法：**
@@ -681,6 +725,118 @@ cfg = Settings.from_toml('config.toml')
 支持 `SettingsConfigDict` 的所有参数（`env_prefix`、`secrets_dir`、`yaml_file` 等），
 与模型字段值自动区分，无需关心分类。
 
+#### 项目配置组合示例
+
+实际项目中通常组合多个配置类——全局（日志）、项目信息、Uvicorn 运行参数。以下为推荐模式：
+只定义字段与加载方式，具体值由 `.env` 与环境变量注入；库仅提供 `AugmentBaseSettings` 基类。
+
+```python
+# src/config/settings.py —— 全局配置（日志 + 根目录）
+from pathlib import Path
+
+from fastapi_augment.common.utils import find_project_root, get_root_dir
+from fastapi_augment.config import AugmentBaseSettings
+
+__VERSION__ = '0.1.0'
+_ENV_PREFIX = 'MY_SERVICE'
+
+try:
+    _root_dir = find_project_root()
+except Exception:
+    _root_dir = get_root_dir(__file__, 2)
+
+
+class Settings(AugmentBaseSettings):
+    """项目全局配置，字段通过 MY_SERVICE_ 前缀环境变量或 .env 覆盖"""
+
+    # 日志配置（对应 fastapi_augment.logger.setup_logger 参数）
+    logs_dir: str | Path | None = _root_dir / 'logs'
+    logs_level: str | None = 'INFO'
+    logs_filename: str = 'app.log'
+    logs_rotation: str = 'hour'
+    logs_backup_count: int = 30
+    logs_encoding: str = 'utf-8'
+    logs_enable_console: bool = True
+
+    @property
+    def root_dir(self) -> Path:
+        return _root_dir
+
+
+settings = Settings.from_env(
+    env_file=_root_dir / '.env',
+    env_prefix=f'{_ENV_PREFIX}_',
+    env_nested_delimiter='__',
+    env_parse_none_str='null',
+)
+```
+
+```python
+# src/config/project_settings.py —— 项目元信息（debug / title / version）
+from fastapi_augment.config import AugmentBaseSettings
+
+from .settings import __VERSION__, _root_dir, _ENV_PREFIX
+
+
+class ProjectSettings(AugmentBaseSettings):
+    """项目基础配置，字段通过 MY_SERVICE_PROJECT_ 前缀覆盖"""
+
+    debug: bool = False
+    title: str = 'my-service'
+    summary: str = ''
+
+    @property
+    def version(self) -> str:
+        return __VERSION__
+
+
+project_settings = ProjectSettings.from_env(
+    env_file=_root_dir / '.env',
+    env_prefix=f'{_ENV_PREFIX}_PROJECT_',
+    env_nested_delimiter='__',
+    env_parse_none_str='null',
+)
+```
+
+```python
+# src/config/uvicorn_settings.py —— Uvicorn 运行参数（不使用 uvicorn 时无需定义）
+from fastapi_augment.config import AugmentBaseSettings
+
+from .project_settings import project_settings
+from .settings import _root_dir, _ENV_PREFIX
+
+
+class UvicornSettings(AugmentBaseSettings):
+    """Uvicorn 运行配置，字段通过 MY_SERVICE_UVICORN_ 前缀覆盖"""
+
+    host: str = '0.0.0.0'
+    port: int = 8000
+    workers: int = 2
+    access_log: bool = True
+    root_path: str = ''
+    asgi_app_ref: str = 'apps.main:app'  # 启动入口，可用环境变量覆盖
+
+    @property
+    def reload(self) -> bool:
+        """是否热重载，联动项目 debug 开关"""
+        return project_settings.debug
+
+
+uvicorn_settings = UvicornSettings.from_env(
+    env_file=_root_dir / '.env',
+    env_prefix=f'{_ENV_PREFIX}_UVICORN_',
+    env_nested_delimiter='__',
+    env_parse_none_str='null',
+)
+```
+
+**要点：**
+
+- 配置类、环境变量前缀、默认值均为**使用方策略**，留在项目内，不进库
+- 各配置类前缀独立（`MY_SERVICE_` / `MY_SERVICE_PROJECT_` / `MY_SERVICE_UVICORN_`），互不干扰
+- 不使用 uvicorn 时无需定义 `UvicornSettings`，库不强制
+- 环境变量优先级高于 `.env` 文件
+
 ### 中间件 — `middlewares`
 
 #### `RequestIdMiddleware`
@@ -695,26 +851,29 @@ request_id = get_request_id()
 
 ### 应用发现 — `common.app_discovery`
 
-递归发现 `apps` 包下所有子包通过 `__all__` 导出的 FastAPI 应用实例，用于多应用聚合部署与启动前校验。
+递归发现 `apps` 包下所有子包通过 `__all__` 导出的 ASGI 应用（不限于 FastAPI），用于多应用聚合部署与启动前校验。
 
-**约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 FastAPI 实例（如 `platform_app`）；只有出现在 `__all__` 且确实是 `FastAPI` 实例的对象才被识别为"应用"。
+**约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 ASGI 应用（如 `platform_app`，不限于 FastAPI 实例）；只有出现在 `__all__` 且通过 `is_asgi_app` 判定的对象才被识别为"应用"（判定规则见下）。
 
 ```python
-from fastapi_augment.common import discover_fastapi_apps, FastAPIAppSpec, validate_asgi_import
+from fastapi_augment.common import ASGIAppSpec, discover_asgi_apps, validate_asgi_import
 
 # 发现全部应用（排除主应用，获取主应用之外的其它应用）
-apps: list[FastAPIAppSpec] = discover_fastapi_apps(root='apps', exclude='apps.platform:platform_app')
+apps: list[ASGIAppSpec] = discover_asgi_apps(root='apps', exclude='apps.platform:platform_app')
 
 # 每个应用可直接启动（import_string 即 uvicorn 导入串）
 for spec in apps:
     uvicorn.run(spec.import_string)   # 'apps.platform:platform_app'
 
-# 启动前校验主应用导入串是否真实存在且为 FastAPI 实例
+# 启动前校验主应用导入串是否真实存在且为可调用的 ASGI 应用（uvicorn 可直接启动）
 validate_asgi_import('apps.platform:platform_app')
 ```
 
 - **`exclude` 支持三种标识** — 模块名（`apps.platform`）、导出名（`platform_app`）或 `module:name` 导入串（`apps.platform:platform_app`）
 - 结果按模块名排序，顺序稳定
+- **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI 应用（Starlette / Flask 等或自定义 ASGI 函数，判定规则见下）均通过
+
+**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGIApplication` / `ASGI2Application` / `ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`（返回 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动将 `x` 收窄为 ASGI 应用）：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI2（类，scope 单参）或 ASGI3（`scope, receive, send` 三参）结构，`*args` 包装器放行。签名判定为近似，权威判定以 uvicorn 实际启动为准。
 
 ## 开发与发布
 
@@ -730,42 +889,60 @@ validate_asgi_import('apps.platform:platform_app')
 # lint（读取 pyproject.toml 的 [tool.ruff] 配置）
 uvx ruff check src tests
 
-# 测试
+# 类型检查（读取 pyproject.toml 的 [tool.mypy] 配置）
+uv run mypy src tests
+
+# 测试（覆盖率门禁 --cov-fail-under=90 在 pyproject.toml 的 pytest addopts 中配置）
 uv run --frozen pytest -q
 ```
 
-CI 已配置自动检查（`.github/workflows/lint.yml`）：每次 push / PR 自动运行 ruff。
+CI（`.github/workflows/lint.yml`，即 **CI** workflow）已配置自动检查，PR / develop push 时运行：
+
+- **Ruff** — `uvx ruff check src tests`
+- **Mypy** — `uv run mypy src tests`（Python 3.11）
+- **Pytest** — Python 3.11 / 3.12 / 3.13 矩阵并行，覆盖率不低于 90%（`--cov-fail-under=90`）
+
+三个 Job 全部通过才允许合并到 `master`（分支保护所需状态检查为 `Ruff`、`Mypy` 与 `Pytest (Python x.y)`）。PR 阶段只做检查，不打包、不打 tag、不发布。
 
 ### 发布 Release
 
-`.github/workflows/release.yml` 触发方式：
+单个 workflow（`.github/workflows/release.yml`）串行完成 GitHub Release 与 PyPI 发布，两个 Job：
 
-- **推送到 `master`（自动）** — 本次合并变更了 `VERSION` 时自动发布新版本（打 tag + 上传 GitHub Release）；未变更则跳过，避免重复发布
+1. **release Job** — 版本守卫 → 代码门禁（pytest + ruff + mypy）→ 源码打包（zip / tar.gz）→ 上传 GitHub Release（tag 由 `gh release create` 自动创建，成功时 tag 必然存在）
+2. **publish Job**（`needs: release`）— **仅当 GitHub Release 成功后才执行**：查 PyPI 是否已有该版本（无则上传）→ build → 版本一致性断言 → `twine check` 校验打包 → 上传 PyPI
+
+触发方式：
+
+- **推送到 `master`（自动）** — 版本守卫判定"需要发布"时自动执行；不需要时跳过
 - **master 分支手动触发**（workflow_dispatch）— `release` 发布新版本 / `rebuild` 重新打包指定版本
 
-发布类操作仅 master 分支可执行，自动完成：
+版本守卫规则（release 与 publish 各自独立判断）：
 
-1. **检查** — pytest + ruff，任一失败即停止，不发布
-2. **确定版本** — 无 tag 用代码版本（`VERSION` 文件）；代码版本 > 最高 tag 用代码版本；否则以最高 tag 版本为准
-3. **校验版本一致性** — 目标版本与代码版本不一致时终止并引导（master 受保护，需先在 `develop` 更新 `VERSION` 与 `factory.py` 版本，PR 合并后重试）
-4. **打包** — 源码打包为 `fastapi_augment-<版本>.zip` / `.tar.gz`（排除 `.venv`、缓存、构建产物）
-5. **打 tag + 发布** — 打包成功后才创建/更新 `v<版本>` tag 并上传 GitHub Release；失败不留任何 tag/Release，重试不会跳版本
+| 状态 | push 合并 | 手动触发 |
+| ---- | --------- | -------- |
+| tag 与 Release 均在且与代码版本一致 | 跳过 | 报错引导先更新 `VERSION` |
+| 缺 tag 或缺 Release | 补齐发布 | 补齐发布 |
+| rebuild 模式 | — | 直接放行 |
+
+publish Job 以 PyPI 线上版本为准（查询 `pypi.org/pypi/<project>/<version>/json`，404 才上传），PyPI 版本不可覆盖，天然不重复。
+
+发布类操作仅 master 分支可执行，任何一步失败都不会产生半成品：
+
+1. **代码门禁** — 判定需要发布时先跑 pytest + ruff + mypy，任一失败即停止（防止绕过分支保护发布未验证代码）
+2. **版本一致性校验** — 目标版本与代码版本不一致时终止并引导（master 受保护，需先在 `develop` 更新 `VERSION` 与 `factory.py` 版本，PR 合并后重试）
+3. **打包** — 源码打包为 `fastapi_augment-<版本>.zip` / `.tar.gz`（排除 `.venv`、缓存、构建产物）
+4. **Release** — 打包成功后才上传 GitHub Release；失败不留任何 tag/Release，重试不会跳版本
+5. **PyPI** — Release 成功后才上传，上传前经 `twine check` 校验 sdist/wheel 元数据，使用 `PYPI_API_TOKEN`（GitHub Secrets）认证
 
 建议发布前先在 `develop` 分支完成版本号更新并 PR 合并到 `master`——合并触发自动发布，发布流程将直接复用代码版本。
-
-PyPI 发布（`.github/workflows/publish.yml`）同样支持合并 `master` 自动触发，仅 `VERSION` 变更时发布（PyPI 版本不可覆盖）。
-
-支持两种模式：
-
-- **release**（默认）— 按版本规则发布新版本
-- **rebuild** — 指定已有 tag（如 `v1.2.3`）重新打包上传，不修改代码版本
 
 ## 项目结构
 
 ```
 fastapi_augment/
 ├── common/
-│   ├── app_discovery.py      # FastAPI 应用发现（__all__ 约定）
+│   ├── app_discovery.py      # ASGI 应用发现（__all__ 约定）
+│   ├── asgi_types.py         # ASGI 类型定义与 is_asgi_app 运行时判定（TypeGuard）
 │   ├── constants.py          # 全局常量与默认错误文案
 │   ├── exceptions.py         # 4xx HTTP 异常体系
 │   ├── exception_handlers.py # 全局异常处理器

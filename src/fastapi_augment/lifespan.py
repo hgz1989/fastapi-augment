@@ -8,6 +8,7 @@
 """
 import asyncio
 from collections.abc import (
+    Awaitable,
     Callable,
     AsyncGenerator,
     Sequence
@@ -16,11 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from inspect import iscoroutinefunction, signature
 from logging import getLogger, Logger
-from typing import (
-    runtime_checkable,
-    Protocol,
-    overload
-)
+from typing import overload
 
 from fastapi import FastAPI
 
@@ -33,21 +30,7 @@ SHUTDOWN_ABORT_ON_EXCEPTION: bool = False
 
 
 # ---------- 类型定义 ----------
-@runtime_checkable
-class _NoArgHook(Protocol):
-    """无参数钩子协议，用于类型检查"""
-
-    async def __call__(self) -> None: ...
-
-
-@runtime_checkable
-class _AppArgHook(Protocol):
-    """带 FastAPI 应用实例参数的钩子协议"""
-
-    async def __call__(self, app: FastAPI) -> None: ...
-
-
-HookFunc = _NoArgHook | _AppArgHook
+HookFunc = Callable[..., Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)

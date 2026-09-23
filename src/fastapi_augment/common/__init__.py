@@ -4,9 +4,21 @@
 @Description    : 通用模块 — 异常 / 异常处理器 / 常量
 """
 from .app_discovery import (
-    FastAPIAppSpec,
-    discover_fastapi_apps,
+    ASGIAppSpec,
+    discover_asgi_apps,
     validate_asgi_import
+)
+from .asgi_types import (
+    Scope,
+    ASGIReceiveEvent,
+    ASGISendEvent,
+    ASGIReceiveCallable,
+    ASGISendCallable,
+    ASGI2Protocol,
+    ASGI2Application,
+    ASGI3Application,
+    ASGIApplication,
+    is_asgi_app
 )
 from .constants import DEFAULT_ERR_MSG
 from .exception_handlers import (
@@ -38,9 +50,20 @@ from .exceptions import (
 
 __all__ = [
     # app_discovery
-    'FastAPIAppSpec',
-    'discover_fastapi_apps',
+    'ASGIAppSpec',
+    'discover_asgi_apps',
     'validate_asgi_import',
+    # asgi_types
+    'Scope',
+    'ASGISendEvent',
+    'ASGIReceiveEvent',
+    'ASGIReceiveCallable',
+    'ASGISendCallable',
+    'ASGI2Protocol',
+    'ASGI2Application',
+    'ASGI3Application',
+    'ASGIApplication',
+    'is_asgi_app',
     # constants
     'DEFAULT_ERR_MSG',
     # exceptions

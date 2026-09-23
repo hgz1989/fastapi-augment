@@ -1,23 +1,25 @@
 # ============================================================
-# Release：测试检查 + 打包源码 + 打 tag + 上传 GitHub Release
+# Release：代码门禁 + 打包源码 + GitHub Release + PyPI
 #
-# 流程：
-#   0. 检查（ruff + pytest）已在 PR 阶段完成，此处不再重复
-#   1. 确定目标版本：release=无 tag 用代码版本 / 代码版本>tag 用代码版本 / 否则以 tag 版本为准；
-#      rebuild=使用指定 tag 重新打包
-#   2. 校验版本一致性：目标版本与代码版本不一致时终止并引导（master 受保护，需先在 develop 更新并 PR 合并）
-#   3. 打包源码（zip + tar.gz）
-#   4. 打包成功后：上传 GitHub Release（tag 由 Release 自动创建，失败不留半成品）
-#   —— 打包失败不留下任何 tag/Release，重试不会跳版本号
+# 流程（push master 或手动触发）：
+#   Job1 release：
+#     版本守卫 → 代码门禁（ruff + pytest + mypy）→ 打包 zip/tar.gz → 上传 GitHub Release
+#     （tag 由 gh release create 自动创建，失败不留半成品）
+#   Job2 publish（needs: release）：
+#     仅当 Release 成功后才执行——查 PyPI 是否已有该版本 → 没有则 build、twine check 并上传
+#     任何一步失败都不会发到 PyPI
+#
+# 守卫规则：
+#   - release job：tag 与 Release 都在且版本一致 → push 跳过 / 手动报错引导升版本
+#   - publish job：以 PyPI 线上版本为准（PyPI JSON API 查 404 才上传，天然不重复）
 #
 # 触发方式：
-#   - 推送到 master（自动）：VERSION 有变更时自动发布新版本（打 tag + 上传 Release）
+#   - 推送到 master（自动）
 #   - 手动触发（workflow_dispatch）：release=发布新版本；rebuild=重新打包指定版本
-#   —— 发布类操作仅 master 分支可执行（job 级 if 校验），其它分支触发将被跳过
-#
-# 产物：GitHub Release vX.Y.Z + 资产 fastapi_augment-X.Y.Z.zip / .tar.gz
+#   —— 发布类操作仅 master 分支可执行（job 级 if 校验）
 # ============================================================
-name: Create Release
+name: Release
+
 on:
   push:
     branches: [master]
@@ -35,13 +37,16 @@ on:
         description: 要重新打包的版本 tag（rebuild 时填写，如 v1.2.3）
         type: string
         required: false
+
 env:
-  # 项目名：同时是打包资产名前缀
   APP_NAME: fastapi_augment
-# 同一时间只允许一个发布流程，防止并发读到同一旧版本号
+  PYPI_PROJECT: fastapi-augment
+
+# 同一时间只允许一个发布流程，防止并发
 concurrency:
   group: release
   cancel-in-progress: false
+
 jobs:
   release:
     # 发布类操作仅 master 分支可执行；其它分支手动触发将直接跳过
@@ -49,12 +54,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # 拉取全部历史与 tag
-
-      # 检查（ruff + pytest）已在 PR 阶段（CI workflow）完成，此处直接进入发布流程
 
       # 版本守卫：tag 与 Release 都存在且版本一致才跳过；缺任一则补齐；
       # rebuild 模式放行；手动触发若版本已完整则报错引导先更新 VERSION
@@ -108,7 +112,11 @@ jobs:
         if: steps.versioncheck.outputs.changed == 'true'
         run: uvx ruff check src tests
 
-      # ---------- 解析目标版本（打 tag 挪到打包成功后）----------
+      - name: Run mypy
+        if: steps.versioncheck.outputs.changed == 'true'
+        run: uv run mypy src tests
+
+      # ---------- 解析目标版本 ----------
       - name: Resolve target version
         id: resolve
         if: steps.versioncheck.outputs.changed == 'true'
@@ -120,8 +128,7 @@ jobs:
           fi
 
       # 版本一致性校验：目标版本与代码版本不一致时终止并引导
-      # master 受保护（禁止直接提交代码）：版本同步需在 develop 分支完成并 PR 合并
-      - name: Update version files
+      - name: Check version consistency
         if: steps.resolve.outputs.changed == 'true'
         run: |
           echo "::error::代码版本与目标版本不一致（目标 v${{ steps.resolve.outputs.final_version }}）"
@@ -136,13 +143,12 @@ jobs:
         with:
           ref: ${{ inputs.rebuild_tag }}
 
-      # ---------- 打包源码（打包成功后才打 tag；失败不留下任何 tag/Release）----------
+      # ---------- 打包源码（打包成功后才上传 Release；失败不留半成品）----------
       - name: Package source
         if: steps.versioncheck.outputs.changed == 'true'
         run: python .github/scripts/release_package.py "${{ steps.resolve.outputs.final_version }}"
 
-      # 打包成功后上传 Release：tag 由 gh release create 自动创建（tag 不存在时指向当前 commit，
-      # 已存在则关联）——保证 Release 成功时 tag 必然存在，失败不留半成品
+      # 上传 Release：tag 由 gh release create 自动创建——Release 成功时 tag 必然存在
       - name: Create or update Release
         if: steps.versioncheck.outputs.changed == 'true'
         env:
@@ -156,3 +162,65 @@ jobs:
             gh release create "v${VERSION}" $ASSETS --title "Release v${VERSION}" --generate-notes
           fi
           echo "Release v${VERSION} 已就绪，资产: $ASSETS"
+
+  # PyPI 发布：必须等 release job（GitHub Release）成功后才执行——
+  # Release 任何一步失败，本 job 自动跳过，绝不会发出半成品到 PyPI
+  publish:
+    needs: release
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # PyPI 守卫：以 PyPI 线上版本为准——已存在则跳过（PyPI 版本不可覆盖），404 才上传
+      - name: Check PyPI version
+        id: pypicheck
+        run: |
+          EXPECTED=$(cat VERSION)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/${{ env.PYPI_PROJECT }}/$EXPECTED/json")
+          echo "PyPI 查询 ${{ env.PYPI_PROJECT }}==$EXPECTED -> HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "PyPI 已存在版本 $EXPECTED，跳过上传"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "PyPI 无版本 $EXPECTED，继续上传"
+          fi
+
+      - name: Setup Python 3.11
+        if: steps.pypicheck.outputs.changed == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Build package
+        if: steps.pypicheck.outputs.changed == 'true'
+        run: |
+          pip install --upgrade pip build
+          python -m build
+
+      # 版本一致性断言：构建产物版本必须与 VERSION（即 tag 版本）完全一致
+      - name: Verify built version matches VERSION
+        if: steps.pypicheck.outputs.changed == 'true'
+        run: |
+          EXPECTED=$(cat VERSION)
+          ls dist/ | grep -q "$EXPECTED" || {
+            echo "::error::构建产物版本与 VERSION 文件（$EXPECTED）不一致，已中止"
+            exit 1
+          }
+          echo "构建产物版本 $EXPECTED 与 VERSION/tag 一致"
+
+      # 打包校验：twine check 确保 sdist/wheel 元数据合法（README、版本、许可证等）
+      - name: Twine check
+        if: steps.pypicheck.outputs.changed == 'true'
+        run: |
+          pip install twine
+          twine check dist/*
+
+      - name: Publish to PyPI
+        if: steps.pypicheck.outputs.changed == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

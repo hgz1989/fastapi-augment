@@ -36,7 +36,7 @@ class TestHookRegistryRegister:
         def sync_hook(): ...
 
         with pytest.raises(TypeError, match='必须是async异步函数'):
-            registry.register_startup(sync_hook)  # type: ignore
+            registry.register_startup(sync_hook)
 
     def test_dedup_same_function(self, registry: HookRegistry):
         async def my_hook(): ...

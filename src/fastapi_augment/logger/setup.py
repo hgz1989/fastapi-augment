@@ -124,7 +124,7 @@ def set_log_format(log_format: str) -> None:
 
 def setup_logger(
     log_dir: str | Path | None = None,
-    filename: str = 'app.logger',
+    filename: str = 'app.log',
     rotation: str = 'day',
     backup_count: int = 30,
     encoding: str = 'utf-8',
@@ -200,6 +200,7 @@ def setup_logger(
                     f'可选值：{list(_ROTATION_MAP.keys())}'
                 )
 
+            file_handler: logging.Handler
             if rotation_key == 'month':
                 file_handler = MonthlyRotatingFileHandler(
                     str(file_path), backup_count=backup_count, encoding=encoding

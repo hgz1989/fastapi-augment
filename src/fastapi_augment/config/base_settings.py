@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Self, cast
 
 from pydantic_settings import (
     PydanticBaseSettingsSource,
@@ -111,7 +111,7 @@ class AugmentBaseSettings(BaseSettings):
             # 检测是否需要注入文件型配置源
             file_source_keys = [k for k in _FILE_SOURCE_MAP if k in config_overrides]
             class_attrs: dict[str, Any] = {
-                'model_config': SettingsConfigDict(**{**dict(cls.model_config), **config_overrides}),
+                'model_config': cast(SettingsConfigDict, {**dict(cls.model_config), **config_overrides}),
             }
 
             if file_source_keys:
@@ -125,15 +125,15 @@ class AugmentBaseSettings(BaseSettings):
             if sub_cls is None:
                 sub_cls = type(f'{cls.__name__}__env', (cls,), class_attrs)
                 _SUBCLASS_CACHE[cache_key] = sub_cls
-            return sub_cls(**fields)  # type: ignore[arg-type]
+            return sub_cls(**fields)
 
-        return cls(**fields)  # type: ignore[arg-type]
+        return cls(**fields)
 
     # ------------------------------
     # 工厂方法
     # ------------------------------
     @classmethod
-    def from_env(cls, **kwargs: Any) -> AugmentBaseSettings:
+    def from_env(cls, **kwargs: Any) -> Self:
         """从环境变量加载配置，支持 ``SettingsConfigDict`` 所有参数
 
         内部自动区分 ``SettingsConfigDict`` 配置参数和模型字段值：
@@ -161,10 +161,10 @@ class AugmentBaseSettings(BaseSettings):
                 debug=True,               # 模型字段值覆盖
             )
         """
-        return cls._build({}, kwargs)
+        return cast(Self, cls._build({}, kwargs))
 
     @classmethod
-    def from_dotenv(cls, env_file: str | Path, **kwargs: Any) -> AugmentBaseSettings:
+    def from_dotenv(cls, env_file: str | Path, **kwargs: Any) -> Self:
         """从 ``.env`` 文件加载配置
 
         环境变量优先级高于 .env 文件中的值
@@ -180,7 +180,7 @@ class AugmentBaseSettings(BaseSettings):
 
             cfg = Settings.from_dotenv('.env', env_prefix='APP_')
         """
-        return cls._build({'env_file': env_file}, kwargs)
+        return cast(Self, cls._build({'env_file': env_file}, kwargs))
 
     @classmethod
     def from_json(cls, json_file: str | Path, **kwargs: Any) -> AugmentBaseSettings:
@@ -255,8 +255,8 @@ class AugmentBaseSettings(BaseSettings):
                 dotenv_settings: PydanticBaseSettingsSource,
                 file_secret_settings: PydanticBaseSettingsSource,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
-            file_sources = tuple(src_cls(cls) for src_cls in sources_to_add)  # type: ignore[arg-type]
+            file_sources = tuple(src_cls(cls) for src_cls in sources_to_add)
             # 优先级：init > env > dotenv > 文件配置 > secrets
-            return (init_settings, env_settings, dotenv_settings, *file_sources, file_secret_settings)  # type: ignore[return-value]
+            return (init_settings, env_settings, dotenv_settings, *file_sources, file_secret_settings)
 
         return _customise
