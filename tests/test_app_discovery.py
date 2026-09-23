@@ -13,8 +13,8 @@ from types import ModuleType
 import pytest
 
 from fastapi_augment.common import (
-    discover_fastapi_apps,
-    FastAPIAppSpec,
+    ASGIAppSpec,
+    discover_asgi_apps,
     validate_asgi_import
 )
 
@@ -32,9 +32,9 @@ def _write_init(package_dir: Path, dotted_name: str, code: str) -> None:
 def apps_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """创建 apps 包（platform / ai / utils / broken 四个子包）并加入 sys.path
 
-    - platform：导出 FastAPI 实例 platform_app
-    - ai：导出 FastAPI 实例 ai_app
-    - utils：__all__ 导出非 FastAPI 对象（不计入发现结果）
+    - platform：导出 ASGI 应用实例 platform_app
+    - ai：导出 ASGI 应用实例 ai_app
+    - utils：__all__ 导出非 ASGI 对象（不计入发现结果）
     - broken：导入即失败（应被跳过，不中断发现）
     """
     root = tmp_path / 'pkg'
@@ -136,57 +136,72 @@ class TestValidateAsgiImport:
             validate_asgi_import('fake_bad_mod:app')
 
 
-# ── FastAPIAppSpec ──────────────────────────────────────────────────
+# ── ASGIAppSpec ─────────────────────────────────────────────────────
 
-class TestFastAPIAppSpec:
+class TestASGIAppSpec:
 
     def test_import_string_property(self):
-        spec = FastAPIAppSpec(module='apps.ai', name='ai_app', app=object())
+        spec = ASGIAppSpec(module='apps.ai', name='ai_app', app=object())
         assert spec.import_string == 'apps.ai:ai_app'
 
     def test_frozen_instance(self):
-        spec = FastAPIAppSpec(module='apps.ai', name='ai_app', app=object())
+        spec = ASGIAppSpec(module='apps.ai', name='ai_app', app=object())
         with pytest.raises(FrozenInstanceError):
             spec.name = 'other'
 
 
-# ── discover_fastapi_apps ───────────────────────────────────────────
+# ── discover_asgi_apps ──────────────────────────────────────────────
 
-class TestDiscoverFastapiApps:
+class TestDiscoverAsgiApps:
 
     def test_discovers_exported_apps(self, apps_package: Path):
-        specs = discover_fastapi_apps('apps')
+        specs = discover_asgi_apps('apps')
         assert [spec.module for spec in specs] == ['apps.ai', 'apps.platform']
         assert [spec.name for spec in specs] == ['ai_app', 'platform_app']
         assert specs[0].app is import_module('apps.ai').ai_app
         assert specs[1].app is import_module('apps.platform').platform_app
 
     def test_excludes_by_module(self, apps_package: Path):
-        specs = discover_fastapi_apps('apps', exclude='apps.platform')
+        specs = discover_asgi_apps('apps', exclude='apps.platform')
         assert [spec.module for spec in specs] == ['apps.ai']
 
     def test_excludes_by_name(self, apps_package: Path):
-        specs = discover_fastapi_apps('apps', exclude='ai_app')
+        specs = discover_asgi_apps('apps', exclude='ai_app')
         assert [spec.module for spec in specs] == ['apps.platform']
 
     def test_excludes_by_import_string(self, apps_package: Path):
-        specs = discover_fastapi_apps('apps', exclude='apps.platform:platform_app')
+        specs = discover_asgi_apps('apps', exclude='apps.platform:platform_app')
         assert [spec.module for spec in specs] == ['apps.ai']
 
     def test_ignores_non_app_exports(self, apps_package: Path):
-        # apps.utils 的 __all__ 导出非 FastAPI 对象，不应计入
-        modules = {spec.module for spec in discover_fastapi_apps('apps')}
+        # apps.utils 的 __all__ 导出非 ASGI 对象，不应计入
+        modules = {spec.module for spec in discover_asgi_apps('apps')}
         assert 'apps.utils' not in modules
 
     def test_skips_broken_subpackage(self, apps_package: Path):
         # apps.broken 导入失败应被跳过，不中断整个发现过程
-        specs = discover_fastapi_apps('apps')
+        specs = discover_asgi_apps('apps')
         assert 'apps.broken' not in {spec.module for spec in specs}
 
     def test_accepts_path_root(self, apps_package: Path):
-        specs = discover_fastapi_apps(Path('apps'))
+        specs = discover_asgi_apps(Path('apps'))
         assert len(specs) == 2
 
     def test_unknown_root_raises(self):
         with pytest.raises(ModuleNotFoundError):
-            discover_fastapi_apps('no_such_root')
+            discover_asgi_apps('no_such_root')
+
+    def test_discovers_non_fastapi_asgi(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        # 非 FastAPI 的普通 ASGI 函数也应被发现（不限于 FastAPI 实例）
+        root = tmp_path / 'pkg2'
+        _write_init(root, 'apps2', '')
+        _write_init(root, 'apps2.web', (
+            '            async def web_app(scope, receive, send):\n'
+            '                ...\n'
+            '\n'
+            '            __all__ = [\'web_app\']\n'
+        ))
+        monkeypatch.syspath_prepend(str(root))
+        specs = discover_asgi_apps('apps2')
+        assert [spec.module for spec in specs] == ['apps2.web']
+        assert [spec.name for spec in specs] == ['web_app']

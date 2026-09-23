@@ -17,7 +17,7 @@
 - **健康检查** — 可扩展的检查器模式，内置应用状态与数据库连通性检查，一行开关
 - **配置管理** — 基于 pydantic-settings，支持 `.env` 文件、环境变量前缀、嵌套配置
 - **数据库迁移 CLI** — 一行命令生成/执行迁移，自动发现用户模型
-- **应用发现** — 自动发现子包 `__all__` 导出的 FastAPI 应用，支持排除与 ASGI 导入串校验
+- **应用发现** — 自动发现子包 `__all__` 导出的 ASGI 应用（不限于 FastAPI），支持排除与导入串校验
 
 ## 安装
 
@@ -812,10 +812,10 @@ request_id = get_request_id()
 **约定：** 每个业务子包（如 `apps.platform`）在 `__init__.py` 的 `__all__` 中导出自己创建的 FastAPI 实例（如 `platform_app`）；只有出现在 `__all__` 且确实是 `FastAPI` 实例的对象才被识别为"应用"。
 
 ```python
-from fastapi_augment.common import discover_fastapi_apps, FastAPIAppSpec, validate_asgi_import
+from fastapi_augment.common import ASGIAppSpec, discover_asgi_apps, validate_asgi_import
 
 # 发现全部应用（排除主应用，获取主应用之外的其它应用）
-apps: list[FastAPIAppSpec] = discover_fastapi_apps(root='apps', exclude='apps.platform:platform_app')
+apps: list[ASGIAppSpec] = discover_asgi_apps(root='apps', exclude='apps.platform:platform_app')
 
 # 每个应用可直接启动（import_string 即 uvicorn 导入串）
 for spec in apps:
@@ -893,7 +893,7 @@ publish Job 以 PyPI 线上版本为准（查询 `pypi.org/pypi/<project>/<versi
 ```
 fastapi_augment/
 ├── common/
-│   ├── app_discovery.py      # FastAPI 应用发现（__all__ 约定）
+│   ├── app_discovery.py      # ASGI 应用发现（__all__ 约定）
 │   ├── asgi_types.py         # ASGI 类型定义与 is_asgi_app 运行时判定
 │   ├── constants.py          # 全局常量与默认错误文案
 │   ├── exceptions.py         # 4xx HTTP 异常体系

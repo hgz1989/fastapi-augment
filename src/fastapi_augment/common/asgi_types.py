@@ -15,8 +15,8 @@ Config.load 一致），签名可解析时进一步检查 ASGI2 / ASGI3 结构
 """
 from __future__ import annotations
 
-import inspect
 from collections.abc import Awaitable, Callable
+from inspect import isclass, isfunction, ismethod, signature, Parameter
 from typing import Any, Protocol
 
 Scope = dict[str, Any]
@@ -71,33 +71,19 @@ def is_asgi_app(app: Any) -> bool:
     if not callable(app):
         return False
     try:
-        if inspect.isclass(app):
+        if isclass(app):
             target = app.__init__
-        elif inspect.isfunction(app) or inspect.ismethod(app):
+        elif isfunction(app) or ismethod(app):
             target = app
         else:
             target = type(app).__call__
-        params = list(inspect.signature(target).parameters.values())
+        params = list(signature(target).parameters.values())
     except (TypeError, ValueError):
         return True
-    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params):
+    if any(p.kind is Parameter.VAR_POSITIONAL for p in params):
         return True
     positional = [p for p in params
-                  if p.kind in (inspect.Parameter.POSITIONAL_ONLY,
-                                inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                  if p.kind in (Parameter.POSITIONAL_ONLY,
+                                Parameter.POSITIONAL_OR_KEYWORD)
                   and p.name not in ('self', 'cls')]
     return len(positional) in (1, 3)
-
-
-__all__ = [
-    'Scope',
-    'ASGIReceiveEvent',
-    'ASGISendEvent',
-    'ASGIReceiveCallable',
-    'ASGISendCallable',
-    'ASGI2Protocol',
-    'ASGI2Application',
-    'ASGI3Application',
-    'ASGIApplication',
-    'is_asgi_app'
-]
