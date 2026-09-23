@@ -32,6 +32,13 @@
 - **Repository 聚合与批量更新** — 新增 `sum` / `avg` / `min` / `max` 数值列聚合（与软删过滤联动，支持过滤条件）与 `update_where` 条件批量更新（单条 UPDATE，返回受影响行数）
 - **新增 `tests/test_soft_delete.py`** — 软删除收尾与聚合能力测试（33 例），覆盖默认过滤 / `include_deleted` / 软删转删除 / 物理删除 / 聚合联动 / 批量更新 / 非软删模型回归；全量 537 passed，覆盖率 92.74%
 - **打包校验** — 发布链 publish Job 增加 `twine check` 步骤，上传 PyPI 前校验 sdist/wheel 元数据合法性
+- **EngineManager 兼容 SQLite** — `_create_engine` 对 SQLite 节点不再传递 QueuePool 参数（pool_size / max_overflow / pool_timeout / pool_recycle / pool_pre_ping），SQLite 使用 NullPool 不接受这些参数；修复 `EngineManager` + `sqlite+aiosqlite` 组合创建引擎报 `Invalid argument(s) sent to create_engine()` 的问题（示例工程验证中发现）
+- **新增完整可跑示例工程 `examples/quickstart`** — 沉淀自真实业务项目（browser-proxy）的工程模式：
+  - 三段式配置（全局 `QUICKSTART_` / 项目 `_PROJECT_` / Uvicorn `_UVICORN_` 前缀独立）
+  - 模块级日志（reload / 多 worker spawn 子进程配置一致）+ `validate_asgi_import` + `uvicorn.run`
+  - 组合根装配：`HookRegistry` 启动建表 / 关闭释放连接池，`create_app(health_check=True)` 一键装配
+  - 示例业务子包 `apps.api`：`TimestampMixin` + `SoftDeleteMixin` 模型、`SchemaBase` / `ORMSchemaBase` DTO、`RepositoryBase` CRUD + 软删除 + 聚合
+  - 8 例 API 冒烟测试（临时 SQLite 文件库，读写会话数据共享）；README 快速开始新增「完整可跑示例」指引
 
 ## [0.1.5] — 2026-09-21
 

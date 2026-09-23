@@ -84,6 +84,19 @@ app = create_app(
 )
 ```
 
+### 完整可跑示例 — `examples/quickstart`
+
+上面的最小示例浓缩了核心 API；想看到**完整工程形态**（三段式配置、模块级日志、组合根装配、生命周期建表、软删除与聚合、统一响应、测试），直接运行示例工程：
+
+```bash
+cd examples/quickstart
+uv sync --all-groups          # 安装依赖（需 uv，Python >= 3.11）
+uv run python src/main.py     # 启动：http://127.0.0.1:8000/docs
+uv run --group dev pytest -q  # 跑测试（临时 SQLite，不落盘）
+```
+
+示例工程沉淀自真实业务项目（browser-proxy）的工程模式，与库文档各章节一一对应（配置组合示例 ↔ `src/config/`，数据库层 ↔ `src/core/database.py`，泛型仓储 ↔ `apps/api/router.py`），详见 `examples/quickstart/README.md`。
+
 ## 核心模块
 
 ### 应用工厂 — `create_app()`

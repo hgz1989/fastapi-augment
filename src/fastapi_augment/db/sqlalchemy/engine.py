@@ -265,19 +265,25 @@ class EngineManager:
     def _create_engine(node: NodeConfig) -> AsyncEngine:
         """Create an async SQLAlchemy engine based on the given node configuration.
 
+        SQLite 使用 NullPool，不接受 QueuePool 参数（pool_size 等），
+        因此对 SQLite 节点只传 echo / connect_args。
+
         Args:
             node: Database node configuration.
 
         Returns:
             An async SQLAlchemy engine.
         """
-        return create_async_engine(
-            node.url,
-            pool_size=node.pool_size,
-            max_overflow=node.max_overflow,
-            pool_timeout=node.pool_timeout,
-            pool_recycle=node.pool_recycle,
-            pool_pre_ping=node.pool_pre_ping,
-            echo=node.echo,
-            connect_args=node.connect_args,
-        )
+        kwargs: dict[str, Any] = {
+            'echo': node.echo,
+            'connect_args': node.connect_args,
+        }
+        if 'sqlite' not in (node.url or '').split('+', 1)[0].lower():
+            kwargs.update(
+                pool_size=node.pool_size,
+                max_overflow=node.max_overflow,
+                pool_timeout=node.pool_timeout,
+                pool_recycle=node.pool_recycle,
+                pool_pre_ping=node.pool_pre_ping,
+            )
+        return create_async_engine(node.url, **kwargs)
