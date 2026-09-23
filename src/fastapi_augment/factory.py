@@ -50,7 +50,7 @@ def create_app(
                 'enforce clean architecture, it accelerates the development of production-ready '
                 'web services.'
         ),
-        version: str = '0.1.5',
+        version: str = '0.1.6',
         debug: bool = False,
         docs_url: str | None = '/docs',
         redoc_url: str | None = '/redoc',
