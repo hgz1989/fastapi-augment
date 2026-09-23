@@ -99,6 +99,7 @@ name = "fastapi-augment"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "pydantic-settings" },
 ]
 
 [package.optional-dependencies]
@@ -140,6 +141,7 @@ requires-dist = [
     { name = "fastapi-augment", extras = ["config", "orjson", "sqlalchemy", "uvicorn"], marker = "extra == 'standard'" },
     { name = "orjson", marker = "extra == 'orjson'", specifier = ">=3.10.0" },
     { name = "pydantic-settings", marker = "extra == 'config'", specifier = ">=2.15.0" },
+    { name = "pydantic-settings", extras = ["config"], specifier = ">=2.15.0" },
     { name = "python-ulid", marker = "extra == 'sqlalchemy'", specifier = ">=4.0.1" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'sqlalchemy'", specifier = ">=2.0.52" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'uvicorn'", specifier = ">=0.24.0" },

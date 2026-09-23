@@ -84,7 +84,6 @@ def is_asgi_app(app: Any) -> TypeGuard[ASGIApplication]:
     if any(p.kind is Parameter.VAR_POSITIONAL for p in params):
         return True
     positional = [p for p in params
-                  if p.kind in (Parameter.POSITIONAL_ONLY,
-                                Parameter.POSITIONAL_OR_KEYWORD)
+                  if p.kind in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
                   and p.name not in ('self', 'cls')]
     return len(positional) in (1, 3)
