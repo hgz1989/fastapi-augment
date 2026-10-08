@@ -5,24 +5,28 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, UTC
 from typing import TypeVar, Any, Annotated
 
 from pydantic import GetJsonSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
-T = TypeVar('T')
+T = TypeVar('T')  # 业务主体数据
 E = TypeVar('E')  # 扩展结构体
 BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 def serialize_beijing_dt(dt: datetime) -> str:
     """
-    输入：数据库读出的UTC带时区datetime
-    输出：北京时间字符串 yyyy-MM-dd HH:mm:ss.fff
+    输入：数据库读出的UTC带时区datetime（naive 视为 UTC）
+    输出：北京时间字符串 yyyy-MM-dd HH:mm:ss.fff（无时区后缀，与接口示例一致）
     """
+    if dt.tzinfo is None:
+        # 数据库存储 UTC；naive 若按系统本地时区解释会随部署机器漂移
+        dt = dt.replace(tzinfo=UTC)
     bj_dt = dt.astimezone(BEIJING_TZ)
-    return bj_dt.isoformat(sep=' ', timespec='milliseconds')
+    # %f 为 6 位微秒，[:-3] 截断为 3 位毫秒，与声明/示例格式 yyyy-MM-dd HH:mm:ss.fff 一致
+    return bj_dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
 
 class _BeijingDatetimePydantic:

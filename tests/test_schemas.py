@@ -2,6 +2,7 @@
 schemas 模块测试 — 基类 / 分页 / 请求参数 / 响应模型
 """
 from datetime import datetime, UTC, date
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -208,11 +209,13 @@ class TestAPIResponse:
         assert resp.extra is None
 
     def test_with_data(self):
-        resp = APIResponse(data={'name': 'alice'})
+        # 携带 data 用双泛型 APIResponse[T, None]
+        resp = APIResponse[Any, None](data={'name': 'alice'})
         assert resp.data == {'name': 'alice'}
 
     def test_with_extra(self):
-        resp = APIResponse(extra={'total': 100})
+        # 单泛型语义 = 不带 extra；验证 extra 时需用双泛型显式指定
+        resp = APIResponse[Any, Any](extra={'total': 100})
         assert resp.extra == {'total': 100}
 
 
@@ -275,3 +278,53 @@ class TestBuildResponse:
         assert resp.message == 'ok'
         assert resp.data == 'd'
         assert resp.extra == 'e'
+
+
+# ── BeijingDatetime ──────────────────────────────────────────────────
+
+class TestBeijingDatetime:
+
+    def test_serialize_beijing_dt(self):
+        """UTC datetime 序列化为北京时间字符串（UTC+8）"""
+        from fastapi_augment.schemas.types import serialize_beijing_dt
+
+        utc_dt = datetime(2026, 1, 2, 4, 5, 6, 123000, tzinfo=UTC)
+        result = serialize_beijing_dt(utc_dt)
+        # UTC 04:05:06.123 + 8h -> 北京时间 12:05:06.123
+        assert result == '2026-01-02 12:05:06.123'
+
+    def test_serialize_naive_dt_treated_as_utc(self):
+        """naive datetime 按 UTC 解释（数据库存储 UTC），不受部署机器本地时区影响"""
+        from fastapi_augment.schemas.types import serialize_beijing_dt
+
+        naive_dt = datetime(2026, 1, 2, 4, 5, 6, 123000)  # noqa: DTZ001 本测试刻意构造 naive datetime 验证 UTC 兜底
+        result = serialize_beijing_dt(naive_dt)
+        assert result == '2026-01-02 12:05:06.123'
+
+    def test_model_serialization(self):
+        """模型字段序列化输出北京时间字符串"""
+        from pydantic import BaseModel
+
+        from fastapi_augment.schemas.types import BeijingDatetime
+
+        class Doc(BaseModel):
+            created_at: BeijingDatetime
+
+        utc_dt = datetime(2026, 1, 2, 4, 5, 6, 999000, tzinfo=UTC)
+        data = Doc(created_at=utc_dt).model_dump()
+        assert data['created_at'] == '2026-01-02 12:05:06.999'
+
+    def test_json_schema(self):
+        """json schema 定制：type=string + 北京时间说明"""
+        from pydantic import BaseModel
+
+        from fastapi_augment.schemas.types import BeijingDatetime
+
+        class Doc(BaseModel):
+            created_at: BeijingDatetime
+
+        model_schema = Doc.model_json_schema()
+        prop = model_schema['properties']['created_at']
+        assert prop['type'] == 'string'
+        assert '北京时间' in prop['description']
+        assert prop['example'] == '2026-11-12 12:33:22.999'

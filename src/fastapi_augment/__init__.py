@@ -11,6 +11,7 @@ from .lifespan import (
     fastapi_lifespan,
     clear_hooks
 )
+from .settings import AugmentBaseSettings
 
 __all__ = [
     # factory
@@ -20,5 +21,6 @@ __all__ = [
     'HookRegistry',
     'core_registry',
     'fastapi_lifespan',
-    'clear_hooks'
+    'clear_hooks',
+    'AugmentBaseSettings'
 ]

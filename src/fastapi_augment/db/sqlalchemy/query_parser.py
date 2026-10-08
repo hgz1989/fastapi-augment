@@ -37,7 +37,8 @@
     sort    = -created_at,nickname             排序（- 前缀表示降序）
 
 值中包含 ``:`` ``=`` 等字符时不受影响，因为分隔符只在第一个匹配处切分
-所有解析函数均通过模型字段白名单校验，防止注入
+所有解析函数均校验字段必须是模型的映射列，防止注入与属性访问越权；
+各解析函数还支持可选 ``fields`` 白名单参数，由调用方进一步收窄可用字段
 """
 from collections.abc import Collection, Sequence
 from datetime import datetime
@@ -51,6 +52,7 @@ from sqlalchemy import (
     desc,
     asc
 )
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.elements import (
     UnaryExpression
 )
@@ -77,6 +79,10 @@ def _escape_like(value: str) -> str:
 def _get_column(model: type[ModelBase], field: str) -> Any:
     """获取模型上指定字段的列对象（lru_cache 缓存，避免重复 getattr）
 
+    仅接受真正的映射列（InstrumentedAttribute）；类方法 / 普通类属性
+    （如 ``not_deleted``、``__tablename__``）一律拒绝，否则后续访问
+    ``column.type`` 会抛 AttributeError 变成 500 而非 400。
+
     Args:
         model: SQLAlchemy 模型类
         field: 字段名
@@ -85,10 +91,10 @@ def _get_column(model: type[ModelBase], field: str) -> Any:
         对应的 InstrumentedAttribute 列对象
 
     Raises:
-        BadRequestError: 字段名不存在于模型上
+        BadRequestError: 字段名不存在于模型上或不是映射列
     """
     column = getattr(model, field, None)
-    if column is None:
+    if not isinstance(column, InstrumentedAttribute):
         raise BadRequestError(detail=f'不支持的查询字段: {field}')
     return column
 
@@ -96,8 +102,8 @@ def _get_column(model: type[ModelBase], field: str) -> Any:
 def _convert_value(python_type: type, value: str) -> Any:
     """根据列的 Python 类型将字符串值转换为对应类型
 
-    转换本身开销极小（一次 ``python_type(value)`` 调用），无需缓存；
-    原先基于 ``id(column.type)`` 的缓存键存在 id 复用风险，已移除
+    转换失败立即抛 BadRequestError（400），而不是静默返回原始字符串——
+    静默回退会把错误延迟到数据库执行时才暴露成 500。
 
     Args:
         python_type: 列的 Python 类型
@@ -105,6 +111,9 @@ def _convert_value(python_type: type, value: str) -> Any:
 
     Returns:
         转换后的值（int / bool / datetime / str）
+
+    Raises:
+        BadRequestError: 值无法转换为目标类型
     """
     try:
         if python_type is bool:
@@ -113,8 +122,13 @@ def _convert_value(python_type: type, value: str) -> Any:
             result = datetime.fromisoformat(value)
         else:
             result = python_type(value)
-    except (ValueError, TypeError):
-        result = value
+    except (ValueError, TypeError) as e:
+        # 经 Any 中转：PyCharm 对静态类型 type 的值做 str/repr 转换会报弱警告，Any 可阻断该推断
+        raw: Any = python_type
+        type_name = getattr(raw, '__name__', repr(raw))
+        raise BadRequestError(
+            detail=f'值 {value!r} 无法转换为 {type_name} 类型'
+        ) from e
     return result
 
 
@@ -176,6 +190,10 @@ def parse_lookup(
     return and_(*conds)
 
 
+# 括号最大嵌套深度，防止病态输入触发 RecursionError 变成 500
+_MAX_PAREN_DEPTH = 32
+
+
 class _WhereParser:
     """where 表达式递归下降解析器
 
@@ -190,15 +208,24 @@ class _WhereParser:
         _src: 原始表达式字符串
         _pos: 当前解析位置
         _model: SQLAlchemy 模型类
+        _fields: 调用方指定的字段白名单；None 表示允许模型全部映射列
+        _depth: 当前括号嵌套深度
     """
 
     # 多字符操作符优先匹配，避免 >= 被 > 截断
     _OPERATORS = ('>=', '<=', '==', '!=', '~=', '>', '<', '~')
 
-    def __init__(self, source: str, model: type[ModelBase]):
+    def __init__(
+            self,
+            source: str,
+            model: type[ModelBase],
+            fields: Collection[str] | None = None,
+    ):
         self._src = source
         self._pos = 0
         self._model = model
+        self._fields = frozenset(fields) if fields is not None else None
+        self._depth = 0
 
     def parse(self) -> ColumnElement:
         """解析完整表达式
@@ -233,11 +260,17 @@ class _WhereParser:
         """解析单元：括号分组或单个条件"""
         self._skip_ws()
         if self._peek() == '(':
+            if self._depth >= _MAX_PAREN_DEPTH:
+                raise BadRequestError(
+                    detail=f'where 表达式括号嵌套超过 {_MAX_PAREN_DEPTH} 层'
+                )
+            self._depth += 1
             self._pos += 1
             expr = self._parse_or()
             if self._peek() != ')':
                 raise BadRequestError(detail='where 表达式缺少右括号 )')
             self._pos += 1
+            self._depth -= 1
             return expr
         return self._parse_condition()
 
@@ -255,6 +288,11 @@ class _WhereParser:
         field = self._src[start:self._pos]
         if not field:
             raise BadRequestError(detail=f'where 表达式位置 {self._pos} 缺少字段名')
+
+        if self._fields is not None and field not in self._fields:
+            raise BadRequestError(
+                detail=f'where 仅支持字段: {", ".join(sorted(self._fields))}'
+            )
 
         # 匹配操作符
         self._skip_ws()
@@ -280,9 +318,8 @@ class _WhereParser:
         return self._build_condition(column, op, raw_value)
 
     @staticmethod
-    @lru_cache(maxsize=512)
     def _build_condition(column: Any, op: str, raw_value: str) -> ColumnElement:
-        """根据操作符构建 SQLAlchemy 条件（lru_cache 缓存，相同条件复用表达式对象）
+        """根据操作符构建 SQLAlchemy 条件
 
         Args:
             column: 模型列对象
@@ -293,7 +330,7 @@ class _WhereParser:
             对应的条件表达式
 
         Raises:
-            BadRequestError: between 格式错误
+            BadRequestError: between 格式错误或值类型转换失败
         """
         if op == '==':
             return column == _convert_value(column.type.python_type, raw_value)
@@ -337,26 +374,34 @@ class _WhereParser:
             self._pos += 1
 
 
-def parse_where(where: str, model: type[ModelBase]) -> ColumnElement:
+def parse_where(
+        where: str,
+        model: type[ModelBase],
+        *,
+        fields: Collection[str] | None = None,
+) -> ColumnElement:
     """解析 where 组合条件表达式（支持与或非 + 括号分组）
 
     Args:
         where: 原始 where 表达式字符串
         model: SQLAlchemy 模型类
+        fields: 允许查询的字段白名单；None 表示允许模型全部映射列
 
     Returns:
         组合后的条件表达式
 
     Raises:
-        BadRequestError: 表达式语法错误或字段不存在
+        BadRequestError: 表达式语法错误或字段不在白名单
     """
-    return _WhereParser(where, model).parse()
+    return _WhereParser(where, model, fields).parse()
 
 
 def parse_keyword(
         q: str,
         q_field: str,
         model: type[ModelBase],
+        *,
+        fields: Collection[str] | None = None,
 ) -> ColumnElement | None:
     """解析关键字搜索条件（多字段 OR）
 
@@ -364,18 +409,24 @@ def parse_keyword(
         q: 关键字
         q_field: 搜索字段列表，逗号分隔
         model: SQLAlchemy 模型类
+        fields: 允许搜索的字段白名单；None 表示允许模型全部映射列
 
     Returns:
         多字段 OR 的 ILIKE 条件表达式，无有效字段时返回 None
 
     Raises:
-        BadRequestError: 字段名不存在
+        BadRequestError: 字段名不存在或不在白名单
     """
+    allowed = frozenset(fields) if fields is not None else None
     conditions = []
     for field in q_field.split(','):
         field = field.strip()
         if not field:
             continue
+        if allowed is not None and field not in allowed:
+            raise BadRequestError(
+                detail=f'关键字搜索仅支持字段: {", ".join(sorted(allowed))}'
+            )
         column = _get_column(model, field)
         conditions.append(column.ilike(f'%{_escape_like(q)}%'))
 
@@ -386,30 +437,38 @@ def parse_keyword(
     return or_(*conditions)
 
 
-def parse_sort(raw: str, model: type[ModelBase]) -> list[UnaryExpression]:
+def parse_sort(
+        raw: str,
+        model: type[ModelBase],
+        *,
+        fields: Collection[str] | None = None,
+) -> list[UnaryExpression]:
     """解析排序字段
 
     Args:
         raw: 原始 sort 字符串，``field`` 升序，``-field`` 降序
         model: SQLAlchemy 模型类
+        fields: 允许排序的字段白名单；None 表示允许模型全部映射列
 
     Returns:
         排序表达式列表
 
     Raises:
-        BadRequestError: 字段名不存在
+        BadRequestError: 字段名不存在或不在白名单
     """
+    allowed = frozenset(fields) if fields is not None else None
     result = []
     for field in raw.split(','):
         field = field.strip()
         if not field:
             continue
-        if field.startswith('-'):
-            column = _get_column(model, field[1:])
-            result.append(desc(column))
-        else:
-            column = _get_column(model, field)
-            result.append(asc(column))
+        name = field[1:] if field.startswith('-') else field
+        if allowed is not None and name not in allowed:
+            raise BadRequestError(
+                detail=f'sort 仅支持字段: {", ".join(sorted(allowed))}'
+            )
+        column = _get_column(model, name)
+        result.append(desc(column) if field.startswith('-') else asc(column))
     return result
 
 
@@ -420,6 +479,7 @@ def build_query_expressions(
         q: str | None = None,
         q_field: str | None = None,
         sort: str | None = None,
+        fields: Collection[str] | None = None,
 ) -> tuple[Sequence[ColumnElement], Sequence[UnaryExpression]]:
     """汇总所有列表查询条件
 
@@ -431,6 +491,7 @@ def build_query_expressions(
         q: 关键字
         q_field: 关键字搜索字段列表
         sort: 排序原始字符串
+        fields: 允许查询 / 排序的字段白名单；None 表示允许模型全部映射列
 
     Returns:
         (expressions, order_by) 元组，分别传给 paginate
@@ -442,15 +503,15 @@ def build_query_expressions(
 
     # where 组合条件
     if where:
-        expressions.append(parse_where(where, model))
+        expressions.append(parse_where(where, model, fields=fields))
 
     # 关键字（多字段 OR）
     if q and q_field:
-        keyword_condition = parse_keyword(q, q_field, model)
+        keyword_condition = parse_keyword(q, q_field, model, fields=fields)
         if keyword_condition is not None:
             expressions.append(keyword_condition)
 
     # 排序
-    order_by = parse_sort(sort, model) if sort else []
+    order_by = parse_sort(sort, model, fields=fields) if sort else []
 
     return expressions, order_by

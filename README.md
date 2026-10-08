@@ -84,19 +84,6 @@ app = create_app(
 )
 ```
 
-### 完整可跑示例 — `examples/quickstart`
-
-上面的最小示例浓缩了核心 API；想看到**完整工程形态**（三段式配置、模块级日志、组合根装配、生命周期建表、软删除与聚合、统一响应、测试），直接运行示例工程：
-
-```bash
-cd examples/quickstart
-uv sync --all-groups          # 安装依赖（需 uv，Python >= 3.11）
-uv run python src/main.py     # 启动：http://127.0.0.1:8000/docs
-uv run --group dev pytest -q  # 跑测试（临时 SQLite，不落盘）
-```
-
-示例工程沉淀自真实业务项目（browser-proxy）的工程模式，与库文档各章节一一对应（配置组合示例 ↔ `src/config/`，数据库层 ↔ `src/core/database.py`，泛型仓储 ↔ `apps/api/router.py`），详见 `examples/quickstart/README.md`。
-
 ## 核心模块
 
 ### 应用工厂 — `create_app()`
@@ -674,6 +661,7 @@ app = create_app(
 
 - 总体状态取所有检查项中**最差**的（healthy < degraded < unhealthy）
 - 任一检查项 unhealthy 时 HTTP 返回 **503**，便于负载均衡器/探针识别
+- 各检查器**并发执行**（`asyncio.gather`），结果仍按注册顺序聚合，单个检查器异常不会阻塞其余检查器
 - 传入 `engine_manager` 时自动包含数据库检查，否则仅检查应用状态
 
 #### 自定义检查器
@@ -697,12 +685,12 @@ app.include_router(create_health_router(
 ))
 ```
 
-### 配置管理 — `config`
+### 配置管理 — `settings`
 
 基于 `pydantic-settings`，支持多种配置来源（环境变量、.env、JSON、YAML、TOML），通过不同类方法加载：
 
 ```python
-from fastapi_augment.config import AugmentBaseSettings
+from fastapi_augment.settings import AugmentBaseSettings
 
 class Settings(AugmentBaseSettings):
     database_url: str
@@ -735,7 +723,7 @@ cfg = Settings.from_toml('config.toml')
 from pathlib import Path
 
 from fastapi_augment.common.utils import find_project_root, get_root_dir
-from fastapi_augment.config import AugmentBaseSettings
+from fastapi_augment.settings import AugmentBaseSettings
 
 __VERSION__ = '0.1.0'
 _ENV_PREFIX = 'MY_SERVICE'
@@ -773,7 +761,7 @@ settings = Settings.from_env(
 
 ```python
 # src/config/project_settings.py —— 项目元信息（debug / title / version）
-from fastapi_augment.config import AugmentBaseSettings
+from fastapi_augment.settings import AugmentBaseSettings
 
 from .settings import __VERSION__, _root_dir, _ENV_PREFIX
 
@@ -800,7 +788,7 @@ project_settings = ProjectSettings.from_env(
 
 ```python
 # src/config/uvicorn_settings.py —— Uvicorn 运行参数（不使用 uvicorn 时无需定义）
-from fastapi_augment.config import AugmentBaseSettings
+from fastapi_augment.settings import AugmentBaseSettings
 
 from .project_settings import project_settings
 from .settings import _root_dir, _ENV_PREFIX
@@ -848,6 +836,58 @@ from fastapi_augment.middlewares import get_request_id
 
 request_id = get_request_id()
 ```
+
+#### Docs 访问保护 — `DocsAuthMiddleware`
+
+`create_app` 默认保护 `/docs`、`/redoc`、`/openapi.json` 三个文档路径：未登录访问时
+重定向到对应的登录页（`/docs` → `/docs/login?next=/docs`，路径随受保护路径动态变化），
+登录成功后下发 **HMAC-SHA256 签名的 HttpOnly Cookie**，后续访问免登录。
+
+```python
+# 显式传入多账号（推荐）
+app = create_app(
+    title='My Service',
+    summary='业务接口服务',
+    docs_credentials=[
+        {'username': 'admin', 'password': 'secret'},
+        {'username': 'ops', 'password': 'secret2'},
+    ],
+    docs_auth_secret='change-me-to-a-random-long-string',
+)
+```
+
+- **多账号** — `docs_credentials` 传入列表；也可用环境变量 `DOCS_CREDENTIALS=user1:pass1,user2:pass2`
+  （逗号分隔、按第一个冒号切分），未配置时回退单账号 `DOCS_USERNAME` / `DOCS_PASSWORD`
+- **签名密钥** — `docs_auth_secret` 显式传入，否则读环境变量 `DOCS_AUTH_SECRET`，再否则
+  随机生成（进程重启后已发 Cookie 全部失效，需重新登录）
+- **Cookie 时效** — 默认 `docs_max_age=None`，即**会话级 Cookie**，
+  **关闭浏览器即失效**（服务端 token 有效期仍按默认 2 小时兜底校验，防复制滥用）；
+  传入秒数为持久化 Cookie；生产 HTTPS 部署可用 `docs_cookie_secure=True` 仅允许 HTTPS 传输
+- **动态路径** — 登录页为 `<受保护路径>/login`，登录成功跳回原目标；访问哪个路径
+  就重定向到哪个路径的登录页
+- **自定义路径** — `docs_url` / `redoc_url` / `openapi_url` 传入自定义值时，保护范围
+  自动跟随；全部禁用（传 `None`）时不挂中间件
+- **安全细节** — 密码比较使用恒定时间算法（`hmac.compare_digest`）；Cookie 默认
+  `HttpOnly` + `SameSite=Lax`，可配置 `Secure`；`next` 仅允许受保护路径，防开放重定向
+- 也可手动挂载：`app.add_middleware(DocsAuthMiddleware, credentials=..., secret=...)`，
+  支持 `protected_paths`、`cookie_name`、`max_age`（None=会话级）、`cookie_secure` 等参数
+
+#### Docs 页面 logo
+
+库内附带 `fastapi_augment/assets/` 资源目录（随包分发）。放入 `logo.png` 后自动生效，
+也可通过 `create_app(docs_logo=...)` 显式指定（支持 URL / `data:` URI / 本地路径）：
+
+```python
+app = create_app(
+    docs_credentials=[{'username': 'admin', 'password': 'secret'}],
+    docs_logo='https://example.com/logo.png',   # 或本地路径 / data URI
+)
+```
+
+- **ReDoc** — 通过 OpenAPI `info.x-logo` 扩展注入（ReDoc 原生支持），顶部显示 logo
+- **登录页** — logo 以 data URI 内联显示在登录表单上方
+- **Swagger UI** — 不支持更换 logo（FastAPI 无对应参数，且不自建 docs 路由），保持默认
+- 显式传入的 `docs_logo` 优先于 `assets/logo.png`；两者均无时不注入 logo
 
 ### 应用发现 — `common.app_discovery`
 
@@ -940,6 +980,7 @@ publish Job 以 PyPI 线上版本为准（查询 `pypi.org/pypi/<project>/<versi
 
 ```
 fastapi_augment/
+├── assets/                  # 包内资源（logo.png 等，随包分发）
 ├── common/
 │   ├── app_discovery.py      # ASGI 应用发现（__all__ 约定）
 │   ├── asgi_types.py         # ASGI 类型定义与 is_asgi_app 运行时判定（TypeGuard）
@@ -948,40 +989,43 @@ fastapi_augment/
 │   ├── exception_handlers.py # 全局异常处理器
 │   └── utils/
 │       ├── paths.py          # 路径工具（get_root_dir / find_project_root）
+│       ├── resources.py      # 包资源读取（assets → data URI）
 │       └── strings.py        # 字符串工具 / JSON 序列化
-├── config/
-│   ├── base_settings.py       # AugmentBaseSettings 配置管理
-│   └── database_settings.py   # DatabaseSettings 数据库配置
 ├── db/
 │   └── sqlalchemy/
+│       ├── base.py           # SQLAlchemy DeclarativeBase
 │       ├── engine.py         # EngineManager / NodeConfig / ClusterTopology
+│       ├── settings.py       # DatabaseSettings 嵌套数据库配置
 │       ├── session.py        # SessionFactory（读写分离）
 │       ├── model_base.py     # ModelBase（ULID 主键）
 │       ├── repository_base.py # RepositoryBase（泛型仓储 + paginate）
 │       ├── query_parser.py    # 查询解析器（where / lookup / keyword / sort）
 │       ├── migrate.py        # 数据库迁移 CLI
-│       ├── migrations/       # Alembic 迁移环境（env.py / script.py.mako）
+│       ├── alembic/          # Alembic 迁移环境（env.py / script.py.mako）
 │       └── mixins/           # Timestamp / Audit / SoftDelete
 ├── health/
-│   ├── checker.py            # BaseChecker / CheckResult / HealthResponse
+│   ├── base.py               # BaseChecker / CheckResult / HealthResponse
 │   ├── checkers.py           # AppChecker / DatabaseChecker
 │   └── router.py             # create_health_router()
 ├── logger/
 │   ├── record_factory.py     # request_id 注入工厂
 │   ├── filters.py            # UvicornNameRewriteFilter
 │   ├── handlers.py           # 多进程安全轮转处理器
-│   └── setup.py              # setup_logger / set_log_level / set_log_format
+│   └── logging_setup.py      # setup_logger / set_log_level / set_log_format
 ├── middlewares/
 │   ├── base.py               # BaseASGIMiddleware
+│   ├── docs_auth.py          # DocsAuthMiddleware（docs 登录页 + HMAC Cookie 保护）
 │   └── request_id.py         # RequestId 中间件
 ├── schemas/
 │   ├── base.py               # SchemaBase / ORMSchemaBase
 │   ├── request.py            # PageParams / TimeRangeParams / KeywordParams
 │   ├── response.py           # APIResponse / response_success / response_fail
-│   └── pagination.py         # PageData 分页模型
+│   ├── pagination.py         # PageData 分页模型
+│   └── types.py              # BeijingDatetime 北京时间序列化类型
 ├── factory.py                # create_app 应用工厂
 ├── lifespan.py               # HookRegistry 生命周期管理
-└── openapi.py                # OpenAPI schema 优化
+├── openapi.py                # OpenAPI schema 优化（含 x-logo 注入）
+└── settings.py               # AugmentBaseSettings 配置管理基类
 ```
 
 ## 许可证

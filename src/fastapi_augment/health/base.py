@@ -28,7 +28,7 @@ class CheckResult(SchemaBase):
     name: str = Field(description='检查项名称')
     status: str = Field(description='状态：healthy / degraded / unhealthy')
     latency_ms: float = Field(default=0.0, description='检查耗时（毫秒）')
-    details: dict[str, Any] | None = Field(default=None, description='附加详情')
+    details: dict[str, Any] = Field(default_factory=dict, description='附加详情')
 
 
 class HealthResponse(SchemaBase):

@@ -1,10 +1,10 @@
 """
-config 模块测试 — AugmentBaseSettings 配置管理
+settings 模块测试 — AugmentBaseSettings 配置管理
 """
 
 from pydantic_settings import SettingsConfigDict
 
-from fastapi_augment.config import (
+from fastapi_augment.settings import (
     AugmentBaseSettings
 )
 

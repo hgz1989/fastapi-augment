@@ -5,7 +5,9 @@
         （无 tag 用代码版本 / 代码高于 tag 用代码版本 / 否则以 tag 版本为准）
     rebuild: 直接使用指定版本重新打包，不修改代码版本
 
-同步：release 模式下，最终版本确定后把 VERSION 与 factory.py 中 create_app 的默认版本一并改为最终版本。
+同步：release 模式下，最终版本确定后把 VERSION 文件同步为最终版本。
+    create_app 的默认版本已改为运行时读取包发行元数据（单一事实源），
+    构建时 setuptools 从 VERSION 生成元数据，因此发布只需更新 VERSION。
 """
 import argparse
 import os
@@ -59,24 +61,15 @@ def decide_version(code_version: str, tag_version: str | None) -> str:
 
 
 def sync_code_version(root: Path, version: str) -> bool:
-    """把 VERSION 与 factory.py 的 create_app 默认版本同步为 version，返回是否有改动"""
+    """把 VERSION 文件同步为 version，返回是否有改动
+
+    不再改写 factory.py：create_app 默认版本已动态读取包发行元数据，
+    发布只需保证 VERSION 与目标版本一致
+    """
     changed = False
     version_file = root / 'VERSION'
     if version_file.read_text(encoding='utf-8').strip() != version:
         version_file.write_text(version + '\n', encoding='utf-8')
-        changed = True
-    factory = root / 'src/fastapi_augment/factory.py'
-    text = factory.read_text(encoding='utf-8')
-    new_text, count = re.subn(
-        r"(version: str = )'[^']*'",
-        rf"\g<1>'{version}'",
-        text,
-        count=1,
-    )
-    if count == 0:
-        raise RuntimeError('factory.py 中未找到 version: str = ... 默认参数')
-    if new_text != text:
-        factory.write_text(new_text, encoding='utf-8')
         changed = True
     return changed
 

@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Generic, cast, overload
+from typing import Generic, overload
 
 from pydantic import Field
 
@@ -13,6 +13,7 @@ from .base import SchemaBase
 from .types import T, E
 
 CODE_SUCCESS = 0
+
 
 # ====================== request_id 默认值 ======================
 def _default_request_id() -> str:
@@ -39,7 +40,10 @@ class APIResponse(SchemaBase, Generic[T, E]):
     extra: E | None = Field(default=None, description='扩展附加信息')
 
 
-# ====================== 工厂函数 overload 重载，优化IDE泛型推导 ======================
+# ====================== 工厂函数 ======================
+# overload 重载，优化 IDE 泛型推导
+
+
 @overload
 def build_response(*, code: int = CODE_SUCCESS, message: str = '操作成功') -> APIResponse[None, None]: ...
 
@@ -109,7 +113,12 @@ def response_success(
     Returns:
         APIResponse[T, E]
     """
-    return build_response(code=CODE_SUCCESS, message=message, data=cast(T, data), extra=cast(E, extra))
+    return build_response(
+        code=CODE_SUCCESS,
+        message=message,
+        data=data,
+        extra=extra
+    )
 
 
 @overload
@@ -136,4 +145,4 @@ def response_fail(
     Returns:
         APIResponse[None, E]
     """
-    return build_response(code=code, message=message, extra=cast(E, extra))
+    return build_response(code=code, message=message, extra=extra)

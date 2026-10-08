@@ -9,7 +9,7 @@ from .handlers import (
     MonthlyRotatingFileHandler,
     YearlyRotatingFileHandler
 )
-from .setup import (
+from .logging_setup import (
     NORMAL_FORMAT,
     setup_logger,
     set_log_level,
@@ -23,7 +23,7 @@ __all__ = [
     'MultiProcessTimedRotatingFileHandler',
     'MonthlyRotatingFileHandler',
     'YearlyRotatingFileHandler',
-    # setup
+    # logging_setup
     'NORMAL_FORMAT',
     'setup_logger',
     'set_log_level',

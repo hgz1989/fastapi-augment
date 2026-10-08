@@ -1,6 +1,9 @@
 # PyCharm 只忽略私有文件，保留共享项目配置
 .idea/
 
+# 环境变量与密钥（.env.example 模板保留）
+.env
+
 # 虚拟环境
 .venv/
 venv/

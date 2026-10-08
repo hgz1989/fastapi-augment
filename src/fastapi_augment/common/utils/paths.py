@@ -9,9 +9,9 @@ from pathlib import Path
 # 项目根目录特征文件/目录，命中任一即视为项目根
 _PROJECT_MARKERS = (
     'pyproject.toml',
-    'setup.py',
     'setup.cfg',
     'requirements.txt',
+    'logging_setup.py',
     '.git',
     '.svn',
     '.hg',
@@ -22,7 +22,7 @@ def find_project_root(reference_path: str | Path | None = None) -> Path:
     """从参考路径向上搜索特征文件，自动定位项目根目录
 
     从 ``reference_path`` 所在目录开始逐级向上，命中任一特征文件
-    （pyproject.toml / setup.py / setup.cfg / requirements.txt / .git 等）
+    （pyproject.toml / logging_setup.py / setup.cfg / requirements.txt / .git 等）
     即返回该目录；``reference_path`` 缺省时从当前工作目录开始。
     相比 ``get_root_dir`` 的 ``parent_index`` 魔法层级数，文件移动后
     依然能正确定位
@@ -71,7 +71,7 @@ def get_root_dir(reference_path: str | Path, parent_index: int) -> Path:
         parent_index >= 0；根据当前文件物理位置调整下标
     """
     if parent_index < 0:
-        raise ValueError("parent_index 不能是负数")
+        raise ValueError('parent_index 不能是负数')
 
     path = (
         Path(sys.executable).parent

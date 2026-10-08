@@ -110,7 +110,7 @@ jobs:
         if: steps.resolve.outputs.changed == 'true'
         run: |
           echo "::error::代码版本与目标版本不一致（目标 v${{ steps.resolve.outputs.final_version }}）"
-          echo "master 受保护，不允许直接提交代码；请先在 develop 分支更新 VERSION 与 factory.py 的 create_app 默认版本，"
+          echo "master 受保护，不允许直接提交代码；请先在 develop 分支更新 VERSION（create_app 默认版本自动跟随包版本），"
           echo "通过 PR 合并到 master 后重新触发发布"
           exit 1
 

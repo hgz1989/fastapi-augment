@@ -4,6 +4,38 @@
 
 ---
 
+## [0.2.0] — 2026-10-08
+
+### Added
+
+- **Docs 文档访问保护** — 新增 `DocsAuthMiddleware` 与登录页，默认保护 `/docs` `/redoc` `/openapi.json`，未登录访问重定向登录，登录成功后下发 **HMAC-SHA256 签名 Cookie**：
+  - 用户名密码仅在登录表单提交时传输一次，Cookie 内容不含密码，签名防篡改
+  - 支持多账号、动态保护路径（`/docs /redoc /openapi.json` 及自定义路径）、会话级或固定有效期、HTTPS-only（`secure`）选项
+  - 登录 POST 增加 **Origin 同源校验**（登录 CSRF 防护）
+- **Docs logo 注入** — 包内 `assets/logo.png` 作为默认 logo 自动注入（ReDoc `info.x-logo` + 登录页），支持 URL / data URI / 本地路径覆盖
+- **`AugmentBaseSettings` 配置基类** — 移除 `config/` 包，新增 `settings.py` 配置模块，支持 env / `.env` / JSON / YAML / TOML 多来源加载
+- **`DatabaseSettings` 嵌套数据库配置** — 自动推导驱动与端口、连接池 / 超时 / SSL 桥接到 `NodeConfig`；URL 构建前校验引擎配置合法性
+- **迁移 CLI 生成保护** — `generate` 支持 `--db-url`；生成前校验数据库是否已同步到 head，落后时中止并提示先 `upgrade`，杜绝 `stamp head` 掩盖未应用的迁移
+
+### Changed
+
+- **`create_app` 默认版本单一事实源** — 不再硬编码，自动读取包发行元数据（`importlib.metadata`），与 `VERSION` 文件保持同步
+- **`SessionFactory.__repr__` 密码脱敏** — 输出 URL 时隐藏密码，避免调试日志泄漏凭据
+- **示例清理** — 移除 `examples/demo.py` 与 `examples/.env` 中的残留乱写占位文案
+- **健康检查并发执行** — 各检查器 `asyncio.gather` 并行探测、互不阻塞，结果仍按注册顺序聚合；单个检查器异常照旧兜底为 unhealthy
+
+### Fixed
+
+- **`BeijingDatetime` naive 时区兜底** — `serialize_beijing_dt` 对无时区的 datetime 统一按 UTC 解释（与"数据库存储 UTC"约定一致），不再随部署机器本地时区偏移
+- **生命周期注册表误传字符串静默失效修复** — `app.state.registries` 传入 `str`/`bytes` 时显式抛 `TypeError`；此前字符串被当作序列逐字符拆分后过滤为空，用户注册表静默不执行
+- **`from_env` 动态子类缓存封顶** — `_SUBCLASS_CACHE` 达 64 条后停止写入，长期运行 + 频繁不同配置时不再缓慢累积类对象
+
+### Removed
+
+- **`fastapi_augment.config` 包** — 由根级 `settings.py` 取代
+
+---
+
 ## [0.1.6] — 2026-09-23
 
 ### Added
@@ -37,12 +69,6 @@
 - **新增 `tests/test_soft_delete.py`** — 软删除收尾与聚合能力测试（33 例），覆盖默认过滤 / `include_deleted` / 软删转删除 / 物理删除 / 聚合联动 / 批量更新 / 非软删模型回归；全量 537 passed，覆盖率 92.74%
 - **打包校验** — 发布链 publish Job 增加 `twine check` 步骤，上传 PyPI 前校验 sdist/wheel 元数据合法性
 - **EngineManager 兼容 SQLite** — `_create_engine` 对 SQLite 节点不再传递 QueuePool 参数（pool_size / max_overflow / pool_timeout / pool_recycle / pool_pre_ping），SQLite 使用 NullPool 不接受这些参数；修复 `EngineManager` + `sqlite+aiosqlite` 组合创建引擎报 `Invalid argument(s) sent to create_engine()` 的问题（示例工程验证中发现）
-- **新增完整可跑示例工程 `examples/quickstart`** — 沉淀自真实业务项目（browser-proxy）的工程模式：
-  - 三段式配置（全局 `QUICKSTART_` / 项目 `_PROJECT_` / Uvicorn `_UVICORN_` 前缀独立）
-  - 模块级日志（reload / 多 worker spawn 子进程配置一致）+ `validate_asgi_import` + `uvicorn.run`
-  - 组合根装配：`HookRegistry` 启动建表 / 关闭释放连接池，`create_app(health_check=True)` 一键装配
-  - 示例业务子包 `apps.api`：`TimestampMixin` + `SoftDeleteMixin` 模型、`SchemaBase` / `ORMSchemaBase` DTO、`RepositoryBase` CRUD + 软删除 + 聚合
-  - 8 例 API 冒烟测试（临时 SQLite 文件库，读写会话数据共享）；README 快速开始新增「完整可跑示例」指引
 
 ## [0.1.5] — 2026-09-21
 
@@ -219,7 +245,9 @@
 | `middlewares/` | `RequestIdMiddleware`（ULID 格式），`ContextVar` 全链路传递 |
 | `openapi.py` | OpenAPI schema 自动清理 422 响应与验证错误模型 |
 
-[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.5...develop
+[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.0...develop
+[0.2.0]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.0
+[0.1.6]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.2...v0.1.3

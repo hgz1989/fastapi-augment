@@ -1,9 +1,9 @@
 """
-config.base_settings 模块测试 — AugmentBaseSettings.from_env() / from_dotenv() / from_json() 配置管理
+settings 模块测试 — AugmentBaseSettings.from_env() / from_dotenv() / from_json() 配置管理
 """
 import pytest
 
-from fastapi_augment.config.base_settings import (
+from fastapi_augment.settings import (
     AugmentBaseSettings
 )
 
@@ -69,6 +69,16 @@ class TestAugmentBaseSettings:
         assert cls1 is cls2
         assert cls1 is not cls3
 
+    def test_subclass_cache_capped(self, monkeypatch: pytest.MonkeyPatch):
+        """缓存达到上限后停止写入，不再无界增长"""
+        from fastapi_augment import settings as settings_module
+
+        monkeypatch.setattr(settings_module, '_SUBCLASS_CACHE', {})
+        monkeypatch.setattr(settings_module, '_SUBCLASS_CACHE_LIMIT', 3)
+        for i in range(8):
+            Settings.from_env(env_prefix=f'C{i}_')
+        assert len(settings_module._SUBCLASS_CACHE) == 3
+
     def test_env_override_beats_default(self, monkeypatch: pytest.MonkeyPatch):
         """环境变量优先级高于默认值"""
         monkeypatch.setenv('DATABASE_URL', 'postgresql://env/db')
@@ -94,6 +104,26 @@ class TestAugmentBaseSettingsWithDotenv:
 
         cfg = Settings.from_dotenv(str(env_file), env_prefix='APP_')
         assert cfg.debug is True
+
+    def test_from_env_with_env_file_list(self, tmp_path):
+        """env_file 传入路径列表时依次加载多个 .env 文件"""
+        common = tmp_path / '.env.common'
+        common.write_text('DATABASE_URL=sqlite:///common.db\n')
+        local = tmp_path / '.env.local'
+        local.write_text('SECRET_KEY=from-local\n')
+
+        cfg = Settings.from_env(env_file=[common, local])
+        assert cfg.database_url == 'sqlite:///common.db'
+        assert cfg.secret_key == 'from-local'
+
+    def test_from_env_with_secrets_dir_list(self, tmp_path):
+        """secrets_dir 传入目录列表时正常读取（不可哈希配置值不影响子类构建）"""
+        secrets_dir = tmp_path / 'secrets'
+        secrets_dir.mkdir()
+        (secrets_dir / 'SECRET_KEY').write_text('from-secrets')
+
+        cfg = Settings.from_env(secrets_dir=[str(secrets_dir)])
+        assert cfg.secret_key == 'from-secrets'
 
 
 class TestAugmentBaseSettingsWithJson:

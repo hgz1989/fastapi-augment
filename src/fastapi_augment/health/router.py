@@ -7,12 +7,13 @@
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from enum import Enum
 
 from fastapi import APIRouter, Request, Response
 
-from .checker import (
+from .base import (
     BaseChecker,
     HealthResponse,
     CheckResult,
@@ -69,23 +70,25 @@ def create_health_router(
     async def health_check(request: Request, response: Response) -> HealthResponse:
         """执行所有健康检查并返回聚合结果
 
+        各检查器并发执行，结果仍按注册顺序聚合；
         任一检查器返回 unhealthy 时，HTTP 状态码为 503
 
         Returns:
             聚合后的健康检查响应
         """
-        results = []
-        for checker in checkers:
+        async def _run(checker: BaseChecker) -> CheckResult:
             try:
-                result = await checker.check(request.app)
+                return await checker.check(request.app)
             except Exception as e:  # noqa: BLE001
                 # 检查器自身异常，兜底为 unhealthy
-                result = CheckResult(
+                return CheckResult(
                     name=checker.name,
                     status=STATUS_UNHEALTHY,
                     details={'error': str(e)},
                 )
-            results.append(result)
+
+        # gather 按传入顺序返回结果，并发执行的同时保持展示顺序
+        results = list(await asyncio.gather(*(_run(c) for c in checkers)))
 
         # 总体状态取最差
         overall = _worst_status(*(r.status for r in results)) if results else STATUS_HEALTHY
