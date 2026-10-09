@@ -170,6 +170,14 @@ class TestRepositoryRead:
         results = await repo.list(session, limit=3)
         assert len(results) == 3
 
+    async def test_list_negative_limit_raises(self, session: AsyncSession, repo: RepositoryBase):
+        with pytest.raises(ValueError, match='limit 不能为负数'):
+            await repo.list(session, limit=-1)
+
+    async def test_list_negative_offset_raises(self, session: AsyncSession, repo: RepositoryBase):
+        with pytest.raises(ValueError, match='offset 不能为负数'):
+            await repo.list(session, offset=-1)
+
     async def test_list_with_offset(self, session: AsyncSession, repo: RepositoryBase):
         for i in range(5):
             await RepositoryBase.create(session, UserItem(name=f'item_{i}'))
@@ -245,6 +253,12 @@ class TestRepositoryUpdate:
     async def test_update_by_id_empty_values(self, session: AsyncSession, repo: RepositoryBase):
         affected = await repo.update_by_id(session, 'some_id')
         assert affected == 0
+
+    async def test_update_by_id_invalid_field_raises(self, session: AsyncSession, repo: RepositoryBase):
+        item = UserItem(name='alice')
+        await RepositoryBase.create(session, item)
+        with pytest.raises(AttributeError, match='no mapped attribute'):
+            await repo.update_by_id(session, item.id, nonexistent_field='value')
 
     async def test_update_invalid_field_raises(self, session: AsyncSession, repo: RepositoryBase):
         item = UserItem(name='alice')

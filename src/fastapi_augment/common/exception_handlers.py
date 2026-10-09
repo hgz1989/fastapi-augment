@@ -174,7 +174,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
     # 注意注册顺序：BaseHttpError 必须在 HTTPException 之前注册，
     # 因为 BaseHttpError 继承自 HTTPException，FastAPI 优先匹配更具体的异常类型
-    app.add_exception_handler(BaseHttpError, base_http_error_handler)  # type: ignore
-    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
+    app.add_exception_handler(BaseHttpError, base_http_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, general_exception_handler)

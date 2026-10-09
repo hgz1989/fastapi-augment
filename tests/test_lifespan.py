@@ -313,6 +313,20 @@ class TestFastapiLifespan:
         async with fastapi_lifespan(app):
             pass
 
+    async def test_string_registries_rejected(self, app: FastAPI):
+        """误传字符串/bytes 时显式报错而非被逐字符拆分后静默过滤为空"""
+        app.state.registries = 'db_registry'
+        with pytest.raises(TypeError, match='必须为 HookRegistry 或列表'):
+            async with fastapi_lifespan(app):
+                pass
+
+    async def test_bytes_registries_rejected(self, app: FastAPI):
+        """误传 bytes 同样显式报错"""
+        app.state.registries = b'db_registry'
+        with pytest.raises(TypeError, match='必须为 HookRegistry 或列表'):
+            async with fastapi_lifespan(app):
+                pass
+
 
 # ── clear_hooks 辅助函数 ─────────────────────────────────────────────
 

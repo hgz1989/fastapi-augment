@@ -6,7 +6,7 @@
                   - 内置 AppChecker（应用状态）和 DatabaseChecker（数据库连通性）
                   - create_health_router() 一键创建健康检查路由
 """
-from .checker import (
+from .base import (
     BaseChecker,
     CheckResult,
     HealthResponse,

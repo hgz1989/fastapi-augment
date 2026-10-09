@@ -11,8 +11,14 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 _logger = getLogger(__name__)
+
+# Alembic env.py 判断异步驱动用的同集驱动名（小写），避免引入循环依赖
+_ASYNC_DRIVERS = frozenset({
+    'asyncpg', 'asyncmy', 'aiomysql', 'aiosqlite', 'aioodbc', 'dmasync',
+})
 
 # ===================== alembic.ini 模板 =====================
 
@@ -229,6 +235,163 @@ def init_project(db_url: str, project_dir: Path | None = None) -> None:
     _logger.info('初始化完成，现在可以使用 generate 生成迁移了')
 
 
+# ===================== generate =====================
+
+def _is_async_url(url: str) -> bool:
+    """判断连接 URL 是否使用异步驱动（与 alembic/env.py 口径一致）"""
+    from urllib.parse import urlparse
+    return urlparse(url).scheme.split('+')[-1].lower() in _ASYNC_DRIVERS
+
+
+def _fetch_current_sync(url: str, version_table: str) -> str | None:
+    """同步驱动查询当前迁移版本
+
+    独立为模块级函数：闭包内无法沿用外层 url 的类型收窄（str | None），
+    且同名局部变量会遮蔽外层变量触发 PyCharm 告警
+    """
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(url)
+    try:
+        with engine.connect() as conn:
+            # noinspection SqlNoDataSourceInspection
+            result = conn.execute(
+                text(f'SELECT version_num FROM {version_table}')
+            )
+            return result.scalar_one_or_none()
+    finally:
+        engine.dispose()
+
+
+async def _fetch_current_async(url: str, version_table: str) -> str | None:
+    """异步驱动查询当前迁移版本（独立函数原因同 _fetch_current_sync）"""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as conn:
+            # noinspection SqlNoDataSourceInspection
+            result = await conn.execute(
+                text(f'SELECT version_num FROM {version_table}')
+            )
+            return result.scalar_one_or_none()
+    finally:
+        await engine.dispose()
+
+
+def _db_is_synced(cfg: Config) -> bool:
+    """连接数据库，判断当前迁移版本是否与 head 同步
+
+    用于生成迁移前的安全校验：若数据库落后于 head，直接 stamp head 会
+    掩盖未应用的迁移，导致后续 upgrade 变为 no-op
+
+    Returns:
+        True 表示数据库已同步到 head（可安全生成）；False 表示不同步、
+        无法连接或版本表缺失（视为不同步，由调用方决定中止）
+    """
+    url = cfg.get_main_option('sqlalchemy.url')
+    if not url:
+        return False
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    if not heads:
+        return True  # 无任何迁移文件，视为同步
+    if len(heads) != 1:
+        return False  # 多 head（分支历史）无法简单比较，保守视为不同步
+    target = heads[0]
+    version_table = cfg.get_main_option('version_table', 'migration_version')
+
+    try:
+        if _is_async_url(url):
+            import asyncio
+
+            current = asyncio.run(_fetch_current_async(url, version_table))
+        else:
+            current = _fetch_current_sync(url, version_table)
+    except Exception as e:  # noqa: BLE001
+        # 无法连接或版本表不存在：宁可中止也不掩盖状态
+        _logger.warning('数据库同步校验失败（%s），已按不同步处理', e)
+        return False
+    return current == target
+
+
+def _guard_synced(cfg: Config) -> None:
+    """生成前的安全守卫：校验数据库同步到 head 后再执行 stamp
+
+    项目尚无迁移文件时直接跳过 stamp（生成首个迁移）；已有迁移文件但
+    数据库落后时中止，避免 stamp 掩盖未应用的迁移
+
+    Raises:
+        RuntimeError: 数据库未同步到 head
+    """
+    heads = ScriptDirectory.from_config(cfg).get_heads()
+    if not heads:
+        _logger.info('暂无迁移文件，跳过 stamp，直接生成首个迁移')
+        return
+    if not _db_is_synced(cfg):
+        raise RuntimeError(
+            '数据库当前版本与 head 不一致，请先执行 upgrade 到 head 后再 generate'
+            '（直接 stamp 会掩盖未应用的迁移）'
+        )
+    # 同步数据库版本标记，避免 "Target database is not up to date" 错误
+    command.stamp(cfg, 'head')
+
+
+def generate_migration(message: str, models: str, db_url: str | None = None, project_dir: Path | None = None) -> None:
+    """生成迁移文件
+
+    统一通过 Alembic Python API（``command.stamp`` / ``command.revision``）
+    执行，避免子进程调用与运行环境不一致；stamp 与生成任一步失败都会抛错，
+    不再静默跳过
+
+    安全保护：仅在项目已存在迁移文件且数据库同步到 head 时才执行
+    ``stamp head``；项目尚无迁移文件时直接生成首个迁移，数据库落后时
+    直接中止并提示先 upgrade，避免 stamp 掩盖未应用的迁移
+
+    Args:
+        message: 迁移描述信息
+        models: 模型模块，多个用逗号分隔 (如 myapp.models)
+        db_url: 数据库连接URL（可选，不传则从 alembic.ini 读取）
+        project_dir: 项目根目录
+
+    Raises:
+        FileNotFoundError: 根目录 alembic.ini 不存在
+        RuntimeError: 数据库未同步到 head、stamp 或生成迁移失败
+    """
+    here = project_dir or Path.cwd()
+    alembic_ini = here / 'alembic.ini'
+    versions_dir = here / 'migrations' / 'versions'
+
+    # 检查 alembic.ini 是否存在（不自动创建，由 init 负责）
+    if not alembic_ini.exists():
+        raise FileNotFoundError(
+            f'未找到 {alembic_ini}，请先执行: fastapi-augment-migrate init --db-url "<数据库URL>"'
+        )
+
+    # 确保 versions 目录存在
+    versions_dir.mkdir(parents=True, exist_ok=True)
+
+    # 设置环境变量，让库内的 env.py 能加载用户模型；执行完成后恢复原值
+    old_models = environ.get('FASTAPI_AUGMENT_MODELS')
+    environ['FASTAPI_AUGMENT_MODELS'] = models
+    try:
+        cfg = _resolve_alembic_config(db_url, here)
+
+        # 生成前安全守卫：同步校验 + stamp（内部负责 heads 判断）
+        _guard_synced(cfg)
+
+        # 生成迁移脚本
+        command.revision(cfg, message=message, autogenerate=True)
+        _logger.info('迁移脚本已生成于 %s', versions_dir)
+    except Exception as e:
+        raise RuntimeError(f'生成迁移失败: {e}') from e
+    finally:
+        if old_models is None:
+            environ.pop('FASTAPI_AUGMENT_MODELS', None)
+        else:
+            environ['FASTAPI_AUGMENT_MODELS'] = old_models
+
+
 # ===================== upgrade / downgrade =====================
 
 def upgrade(db_url: str | None = None, revision: str = 'head', project_dir: Path | None = None) -> None:
@@ -255,59 +418,6 @@ def downgrade(db_url: str | None = None, revision: str = '-1', project_dir: Path
     command.downgrade(cfg, revision)
 
 
-# ===================== generate =====================
-
-def generate_migration(message: str, models: str, project_dir: Path | None = None) -> None:
-    """生成迁移文件
-
-    统一通过 Alembic Python API（``command.stamp`` / ``command.revision``）
-    执行，避免子进程调用与运行环境不一致；stamp 与生成任一步失败都会抛错，
-    不再静默跳过
-
-    Args:
-        message: 迁移描述信息
-        models: 模型模块，多个用逗号分隔 (如 myapp.models)
-        project_dir: 项目根目录
-
-    Raises:
-        FileNotFoundError: 根目录 alembic.ini 不存在
-        RuntimeError: stamp 或生成迁移失败
-    """
-    here = project_dir or Path.cwd()
-    alembic_ini = here / 'alembic.ini'
-    versions_dir = here / 'migrations' / 'versions'
-
-    # 检查 alembic.ini 是否存在（不自动创建，由 init 负责）
-    if not alembic_ini.exists():
-        raise FileNotFoundError(
-            f'未找到 {alembic_ini}，请先执行: fastapi-augment-migrate init --db-url "<数据库URL>"'
-        )
-
-    # 确保 versions 目录存在
-    versions_dir.mkdir(parents=True, exist_ok=True)
-
-    # 设置环境变量，让库内的 env.py 能加载用户模型；执行完成后恢复原值
-    old_models = environ.get('FASTAPI_AUGMENT_MODELS')
-    environ['FASTAPI_AUGMENT_MODELS'] = models
-    try:
-        cfg = _resolve_alembic_config(None, here)
-
-        # 先 stamp head，同步数据库版本标记，
-        # 避免 "Target database is not up to date" 错误
-        command.stamp(cfg, 'head')
-
-        # 生成迁移脚本
-        command.revision(cfg, message=message, autogenerate=True)
-        _logger.info('迁移脚本已生成于 %s', versions_dir)
-    except Exception as e:
-        raise RuntimeError(f'生成迁移失败: {e}') from e
-    finally:
-        if old_models is None:
-            environ.pop('FASTAPI_AUGMENT_MODELS', None)
-        else:
-            environ['FASTAPI_AUGMENT_MODELS'] = old_models
-
-
 # ===================== CLI 入口 =====================
 
 def cli_main() -> None:
@@ -320,6 +430,13 @@ def cli_main() -> None:
     init_parser.add_argument('--db-url', default='sqlite:///app.db', help='数据库连接 URL')
     init_parser.add_argument('--project-dir', type=Path, default=None, help='项目根目录（默认为当前工作目录）')
 
+    # --- generate ---
+    gen_parser = subparsers.add_parser('generate', help='生成迁移脚本')
+    gen_parser.add_argument('--message', required=True, help='迁移描述信息')
+    gen_parser.add_argument('--models', required=True, help='模型模块，多个用逗号分隔 (如 myapp.models)')
+    gen_parser.add_argument('--db-url', help='数据库连接 URL（不传则从 alembic.ini 读取）')
+    gen_parser.add_argument('--project-dir', type=Path, default=None, help='项目根目录（默认为当前工作目录）')
+
     # --- upgrade ---
     up_parser = subparsers.add_parser('upgrade', help='执行数据库迁移')
     up_parser.add_argument('--db-url', help='数据库连接 URL（不传则从 alembic.ini 读取）')
@@ -327,24 +444,17 @@ def cli_main() -> None:
     up_parser.add_argument('--downgrade', action='store_true', help='降级而非升级')
     up_parser.add_argument('--project-dir', type=Path, default=None, help='项目根目录（默认为当前工作目录）')
 
-    # --- generate ---
-    gen_parser = subparsers.add_parser('generate', help='生成迁移脚本')
-    gen_parser.add_argument('--message', required=True, help='迁移描述信息')
-    gen_parser.add_argument('--models', required=True, help='模型模块，多个用逗号分隔 (如 myapp.models)')
-    gen_parser.add_argument('--project-dir', type=Path, default=None, help='项目根目录（默认为当前工作目录）')
-
     args = parser.parse_args()
-
     try:
         if args.command == 'init':
             init_project(args.db_url, args.project_dir)
+        elif args.command == 'generate':
+            generate_migration(args.message, args.models, args.db_url, args.project_dir)
         elif args.command == 'upgrade':
             if args.downgrade:
                 downgrade(args.db_url, args.revision, args.project_dir)
             else:
                 upgrade(args.db_url, args.revision, args.project_dir)
-        elif args.command == 'generate':
-            generate_migration(args.message, args.models, args.project_dir)
         else:
             parser.print_help()
     except (FileNotFoundError, RuntimeError) as e:

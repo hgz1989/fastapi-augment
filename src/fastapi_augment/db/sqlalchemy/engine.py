@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from itertools import cycle
 from typing import Any
 
+from sqlalchemy import NullPool
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     create_async_engine
@@ -25,6 +26,8 @@ class NodeConfig:
 
     Args:
         url: Async SQLAlchemy connection URL, e.g. ``postgresql+asyncpg://user:pass@host/db``.
+        pool_enabled: Enable connection pooling (False = NullPool, one fresh
+            connection per checkout; SQLite nodes always ignore pool params).
         pool_size: Connection pool size (0 = unlimited).
         max_overflow: Max connections allowed beyond *pool_size*.
         pool_timeout: Seconds to wait for a connection from the pool.
@@ -35,6 +38,7 @@ class NodeConfig:
     """
 
     url: str
+    pool_enabled: bool = True
     pool_size: int = 5
     max_overflow: int = 10
     pool_timeout: float = 30.0
@@ -94,10 +98,10 @@ class ClusterTopology:
 
     @property
     def is_cluster(self) -> bool:
-        """Indicates whether the topology consists of a single primary node, one or more replicas, and one or more readonly nodes.
+        """Indicates whether the topology has one or more replicas and/or readonly nodes (covers master-replica and readonly-only setups).
 
         Returns:
-            True if the topology is a cluster, False otherwise.
+            True if at least one replica or readonly node is configured, False otherwise.
         """
         return bool(self.replicas) or bool(self.readonly)
 
@@ -279,11 +283,14 @@ class EngineManager:
             'connect_args': node.connect_args,
         }
         if 'sqlite' not in (node.url or '').split('+', 1)[0].lower():
-            kwargs.update(
-                pool_size=node.pool_size,
-                max_overflow=node.max_overflow,
-                pool_timeout=node.pool_timeout,
-                pool_recycle=node.pool_recycle,
-                pool_pre_ping=node.pool_pre_ping,
-            )
+            if not node.pool_enabled:
+                kwargs['poolclass'] = NullPool
+            else:
+                kwargs.update(
+                    pool_size=node.pool_size,
+                    max_overflow=node.max_overflow,
+                    pool_timeout=node.pool_timeout,
+                    pool_recycle=node.pool_recycle,
+                    pool_pre_ping=node.pool_pre_ping,
+                )
         return create_async_engine(node.url, **kwargs)

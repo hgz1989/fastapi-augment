@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Generic, cast, overload
+from typing import Generic, overload
 
 from pydantic import Field
 
@@ -13,6 +13,7 @@ from .base import SchemaBase
 from .types import T, E
 
 CODE_SUCCESS = 0
+
 
 # ====================== request_id 默认值 ======================
 def _default_request_id() -> str:
@@ -39,43 +40,7 @@ class APIResponse(SchemaBase, Generic[T, E]):
     extra: E | None = Field(default=None, description='扩展附加信息')
 
 
-# ====================== 工厂函数 overload 重载，优化IDE泛型推导 ======================
-@overload
-def build_response(*, code: int = CODE_SUCCESS, message: str = '操作成功') -> APIResponse[None, None]: ...
-
-
-@overload
-def build_response(*, code: int = CODE_SUCCESS, message: str = '操作成功', data: T) -> APIResponse[T, None]: ...
-
-
-@overload
-def build_response(*, code: int = CODE_SUCCESS, message: str = '操作成功', extra: E) -> APIResponse[None, E]: ...
-
-
-@overload
-def build_response(*, code: int = CODE_SUCCESS, message: str = '操作成功', data: T, extra: E) -> APIResponse[T, E]: ...
-
-
-def build_response(
-        *,
-        code: int = CODE_SUCCESS,
-        message: str = '操作成功',
-        data: T | None = None,
-        extra: E | None = None,
-) -> APIResponse[T, E]:
-    """底层构建响应，优先使用 response_success / response_fail
-
-    Args:
-        code: 业务码，0代表成功
-        message: 提示文案
-        data: 业务主体数据
-        extra: 扩展附加信息
-
-    Returns:
-        APIResponse[T, E]
-    """
-    return APIResponse(code=code, message=message, data=data, extra=extra)
-
+# ====================== 工厂函数 ======================
 
 @overload
 def response_success(*, message: str = '操作成功') -> APIResponse[None, None]: ...
@@ -108,8 +73,12 @@ def response_success(
 
     Returns:
         APIResponse[T, E]
+
+    Note:
+        直接构造 APIResponse（字段类型为 ``T | None`` / ``E | None``），
+        避免泛型 overload 对 ``T | None`` 实参的严格匹配
     """
-    return build_response(code=CODE_SUCCESS, message=message, data=cast(T, data), extra=cast(E, extra))
+    return APIResponse(code=CODE_SUCCESS, message=message, data=data, extra=extra)
 
 
 @overload
@@ -135,5 +104,8 @@ def response_fail(
 
     Returns:
         APIResponse[None, E]
+
+    Note:
+        直接构造 APIResponse（同 ``response_success``，避开 overload 严格匹配）
     """
-    return build_response(code=code, message=message, extra=cast(E, extra))
+    return APIResponse(code=code, message=message, extra=extra)

@@ -246,3 +246,46 @@ class TestEngineManager:
             _ = manager.next_read_engine()
         with pytest.raises(RuntimeError, match='dispose'):
             _ = manager.get_engine('primary')
+
+
+# ── pool_enabled 池开关 ──────────────────────────────────────────────
+
+class TestNodeConfigPoolEnabled:
+
+    def test_defaults_pool_enabled(self):
+        node = NodeConfig(url='postgresql+asyncpg://localhost/db')
+        assert node.pool_enabled is True
+
+    def test_pool_disabled_uses_null_pool(self, monkeypatch):
+        """pool_enabled=False 时传 NullPool 且不传 QueuePool 参数"""
+        from sqlalchemy.pool import NullPool
+
+        captured: dict = {}
+
+        def fake_create(url, **kwargs):
+            captured['kwargs'] = kwargs
+            return object()
+
+        monkeypatch.setattr(
+            'fastapi_augment.db.sqlalchemy.engine.create_async_engine', fake_create
+        )
+        node = NodeConfig(url='postgresql+asyncpg://localhost/db', pool_enabled=False)
+        EngineManager._create_engine(node)
+        assert captured['kwargs']['poolclass'] is NullPool
+        assert 'pool_size' not in captured['kwargs']
+
+    def test_pool_enabled_uses_queue_pool(self, monkeypatch):
+        """默认启用连接池（传 QueuePool 参数、不传 poolclass）"""
+        captured: dict = {}
+
+        def fake_create(url, **kwargs):
+            captured['kwargs'] = kwargs
+            return object()
+
+        monkeypatch.setattr(
+            'fastapi_augment.db.sqlalchemy.engine.create_async_engine', fake_create
+        )
+        node = NodeConfig(url='postgresql+asyncpg://localhost/db', pool_size=3)
+        EngineManager._create_engine(node)
+        assert captured['kwargs']['pool_size'] == 3
+        assert 'poolclass' not in captured['kwargs']

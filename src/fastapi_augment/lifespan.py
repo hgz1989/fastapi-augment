@@ -383,7 +383,8 @@ async def fastapi_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         registries = []
     elif isinstance(registries, HookRegistry):
         registries = [registries]
-    elif isinstance(registries, Sequence):
+    elif isinstance(registries, Sequence) and not isinstance(registries, (str, bytes)):
+        # str/bytes 也是 Sequence，误传字符串会被逐字符拆分后静默过滤为空，显式拒绝
         registries = list(registries)
     else:
         raise TypeError(

@@ -99,3 +99,22 @@ class TestConfigureOpenapiSchema:
         schema = app.openapi()
         assert schema is not None
         assert schema['info']['title'] == 'Test'
+
+    def test_logo_injects_x_logo(self):
+        """配置 logo 时注入 OpenAPI info.x-logo（ReDoc 读取）"""
+        app = _make_app_with_route(OpenAPICustomConfig(
+            logo='data:image/png;base64,AAAA',
+            logo_alt_text='My Logo',
+        ))
+        schema = app.openapi()
+        assert schema is not None
+        x_logo = schema['info']['x-logo']
+        assert x_logo['url'] == 'data:image/png;base64,AAAA'
+        assert x_logo['altText'] == 'My Logo'
+
+    def test_no_logo_no_x_logo(self):
+        """未配置 logo 时不注入 x-logo"""
+        app = _make_app_with_route(OpenAPICustomConfig())
+        schema = app.openapi()
+        assert schema is not None
+        assert 'x-logo' not in schema['info']

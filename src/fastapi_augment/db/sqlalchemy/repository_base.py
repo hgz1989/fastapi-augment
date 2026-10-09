@@ -5,12 +5,11 @@
 """
 from __future__ import annotations
 
-import typing
 from collections.abc import Sequence, Mapping
 from datetime import datetime, UTC
 from functools import lru_cache
 from math import ceil
-from typing import TypeVar, Generic, cast, Any
+from typing import TypeVar, Generic, get_args, cast, Any
 
 from sqlalchemy import (
     func,
@@ -102,7 +101,7 @@ class RepositoryBase(Generic[ModelT]):
         """
         # noinspection PyUnresolvedReferences
         for base in getattr(cls, '__orig_bases__', ()):
-            args = typing.get_args(base)
+            args = get_args(base)
             if args and isinstance(args[0], type) and issubclass(args[0], ModelBase):
                 return cast(type[ModelT], args[0])
         raise TypeError(
@@ -219,7 +218,15 @@ class RepositoryBase(Generic[ModelT]):
 
         Returns:
             A list of matching model instances.
+
+        Raises:
+            ValueError: If *limit* or *offset* is negative.
         """
+        if offset < 0:
+            raise ValueError(f'offset 不能为负数: {offset}')
+        if limit is not None and limit < 0:
+            raise ValueError(f'limit 不能为负数: {limit}')
+
         conditions = self._apply_soft_delete(
             self._conditions(expressions, filters), include_deleted
         )
@@ -397,9 +404,15 @@ class RepositoryBase(Generic[ModelT]):
 
         Returns:
             The number of affected rows (0 = not found or nothing to update).
+
+        Raises:
+            AttributeError: If a key does not correspond to a mapped attribute.
         """
         if not values:
             return 0
+
+        for key in values:
+            self._attr(key)
 
         stmt = update(self.model).where(self.model.id == id_).values(**values)
         result = cast(CursorResult[Any], await session.execute(stmt))
@@ -435,8 +448,10 @@ class RepositoryBase(Generic[ModelT]):
                 stmt = stmt.where(cast(Any, self.model).is_deleted.is_(False))
             stmt = stmt.values(is_deleted=True, deleted_at=now)
             result = cast(CursorResult[Any], await session.execute(stmt))
-            # ORM-enabled UPDATE 的 evaluator 同步可能漏掉 deleted_at，
+            # ORM-enabled UPDATE 的 synchronize_session（evaluate/fetch）实测
+            # 只同步 is_deleted，漏掉 tz-aware datetime 类型的 deleted_at，
             # 显式同步已加载实例，避免后续读取到 stale 状态
+            # （session.get 对已加载实例走 identity map，无额外 SQL 往返）
             loaded = await session.get(self.model, id_)
             if loaded is not None:
                 loaded = cast(Any, loaded)
@@ -531,11 +546,11 @@ class RepositoryBase(Generic[ModelT]):
         """未删除过滤条件；非软删模型返回 None"""
         if not self._uses_soft_delete():
             return None
-        not_deleted = getattr(self.model, 'not_deleted', None)
-        if callable(not_deleted):
-            return cast(ColumnElement[bool], not_deleted())
+        model_cls = cast(Any, self.model)
+        if callable(getattr(model_cls, 'not_deleted', None)):
+            return cast(ColumnElement[bool], model_cls.not_deleted())
         # 兜底：模型只有列没有类方法时按列构造
-        return cast(Any, self.model).is_deleted.is_(False)
+        return model_cls.is_deleted.is_(False)
 
     def _apply_soft_delete(
             self,

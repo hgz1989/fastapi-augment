@@ -61,6 +61,7 @@ class BaseHttpError(HTTPException):
 
 # ===================== 各类4xx异常子类（极简声明，无重复__init__） =====================
 # 子类只需声明 _status_code 类变量，__init__ 由基类统一处理
+# noinspection DuplicatedCode
 class BadRequestError(BaseHttpError):
     """400 请求错误"""
     _status_code = status.HTTP_400_BAD_REQUEST
@@ -101,6 +102,7 @@ class RequestTimeoutError(BaseHttpError):
     _status_code = status.HTTP_408_REQUEST_TIMEOUT
 
 
+# noinspection DuplicatedCode
 class ConflictError(BaseHttpError):
     """409 资源冲突"""
     _status_code = status.HTTP_409_CONFLICT

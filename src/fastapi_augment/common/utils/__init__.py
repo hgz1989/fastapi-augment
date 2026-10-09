@@ -1,9 +1,14 @@
 """
 @Author         : hangu
 @CreateDate     : 2026/9/4
-@Description    : 通用工具函数（路径、字符串、JSON 序列化）
+@Description    : 通用工具函数（路径、字符串、JSON 序列化、包资源）
 """
 from .paths import find_project_root, get_root_dir
+from .resources import (
+    ASSETS_DIR,
+    file_data_uri,
+    package_asset_data_uri
+)
 from .strings import (
     SupportsWriteStr,
     SupportsReadBytes,
@@ -20,6 +25,10 @@ __all__ = [
     # paths
     'find_project_root',
     'get_root_dir',
+    # resources
+    'ASSETS_DIR',
+    'file_data_uri',
+    'package_asset_data_uri',
     # strings
     'SupportsWriteStr',
     'SupportsReadBytes',

@@ -23,7 +23,7 @@ class TestCreateAppBasic:
     def test_default_metadata(self):
         app = create_app()
         assert app.title == 'FastAPI Augment'
-        assert app.version == '0.1.6'
+        assert app.version == '0.2.0'
         assert app.description.startswith('FastAPI Augment')
 
     def test_custom_metadata(self):
@@ -41,6 +41,74 @@ class TestCreateAppBasic:
         assert app.docs_url is None
         assert app.redoc_url is None
         assert app.openapi_url is None
+
+    def test_docs_logo_injects_x_logo(self):
+        """create_app 传 docs_logo 后，OpenAPI info.x-logo 注入（ReDoc 生效）"""
+        app = create_app(docs_logo='data:image/png;base64,AAAA')
+        schema = app.openapi()
+        assert schema is not None
+        assert schema['info']['x-logo']['url'] == 'data:image/png;base64,AAAA'
+
+    def test_docs_logo_default_no_injection(self, monkeypatch):
+        """未传 docs_logo 且包内无 logo.png 时，不注入 x-logo（行为与旧版一致）"""
+        monkeypatch.setattr(
+            'fastapi_augment.factory.package_asset_data_uri',
+            lambda *args, **kwargs: None,
+        )
+        app = create_app()
+        schema = app.openapi()
+        assert schema is not None
+        assert 'x-logo' not in schema['info']
+
+    def test_docs_logo_local_path(self, tmp_path):
+        """docs_logo 传本地路径时转为 data URI 注入"""
+        logo_file = tmp_path / 'logo.png'
+        logo_file.write_bytes(b'\x89PNG\x0d\x0a\x1a\x0a')
+        app = create_app(docs_logo=logo_file)
+        schema = app.openapi()
+        assert schema is not None
+        uri = schema['info']['x-logo']['url']
+        assert uri.startswith('data:image/png;base64,')
+
+    def test_docs_logo_url_passthrough(self):
+        """docs_logo 传 http URL 时原样使用（不转 data URI）"""
+        app = create_app(docs_logo='https://example.com/logo.png')
+        schema = app.openapi()
+        assert schema is not None
+        assert schema['info']['x-logo']['url'] == 'https://example.com/logo.png'
+
+    def test_docs_auth_secret_from_env(self, monkeypatch):
+        """docs_auth_secret 未传时回退环境变量 DOCS_AUTH_SECRET"""
+        monkeypatch.setenv('DOCS_AUTH_SECRET', 'env-secret-123')
+        app = create_app(
+            docs_credentials=[{'username': 'admin', 'password': 'secret'}],
+        )
+        # 环境变量密钥应能正常完成登录（Cookie 签发依赖该密钥）
+        from starlette.testclient import TestClient
+
+        client = TestClient(app)
+        resp = client.post(
+            '/docs/login',
+            data={'username': 'admin', 'password': 'secret', 'next': '/docs'},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303  # 登录成功跳转
+
+    def test_docs_auth_random_secret_fallback(self, monkeypatch):
+        """无显式/环境变量密钥时随机生成（重启后登录态失效，行为可用）"""
+        monkeypatch.delenv('DOCS_AUTH_SECRET', raising=False)
+        app = create_app(
+            docs_credentials=[{'username': 'admin', 'password': 'secret'}],
+        )
+        from starlette.testclient import TestClient
+
+        client = TestClient(app)
+        resp = client.post(
+            '/docs/login',
+            data={'username': 'admin', 'password': 'secret', 'next': '/docs'},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
 
 
 # ── lifespan 校验 ─────────────────────────────────────────────────────
@@ -240,3 +308,103 @@ class TestHealthCheckToggle:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data['checks']) == 1
+
+
+# ── Docs 密钥多进程共享 ──────────────────────────────────────────────
+
+class TestDocsSecretSharedFile:
+    """docs_auth_secret 随机回退：密钥经临时文件在同机多进程间共享"""
+
+    def test_same_cache_key_shares_secret(self, monkeypatch, tmp_path):
+        """同一应用（相同 cache_key）多次解析得到同一密钥（模拟多 worker）"""
+        import tempfile
+
+        from fastapi_augment.factory import _resolve_docs_secret
+
+        monkeypatch.delenv('DOCS_AUTH_SECRET', raising=False)
+        monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+
+        key = 'MyApp:[{"username": "admin", "password": "secret"}]'
+        s1 = _resolve_docs_secret(None, cache_key=key)
+        s2 = _resolve_docs_secret(None, cache_key=key)
+        assert s1 == s2
+        assert len(s1) == 64
+
+    def test_different_cache_key_isolated(self, monkeypatch, tmp_path):
+        """不同应用（不同 cache_key）密钥互相隔离"""
+        import tempfile
+
+        from fastapi_augment.factory import _resolve_docs_secret
+
+        monkeypatch.delenv('DOCS_AUTH_SECRET', raising=False)
+        monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+
+        s1 = _resolve_docs_secret(None, cache_key='app-a')
+        s2 = _resolve_docs_secret(None, cache_key='app-b')
+        assert s1 != s2
+
+    def test_existing_valid_file_reused(self, monkeypatch, tmp_path):
+        """已存在的有效密钥文件被直接复用（第二个进程启动时读取）"""
+        import hashlib
+        import tempfile
+
+        from fastapi_augment.factory import _resolve_docs_secret
+
+        monkeypatch.delenv('DOCS_AUTH_SECRET', raising=False)
+        monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+
+        preset = 'a' * 64
+        digest = hashlib.sha256(b'app-x').hexdigest()[:16]
+        (tmp_path / f'fastapi-augment-docs-secret-{digest}').write_text(preset)
+        assert _resolve_docs_secret(None, cache_key='app-x') == preset
+
+    def test_invalid_file_content_regenerates(self, monkeypatch, tmp_path):
+        """残留的无效密钥文件（空内容）触发重新生成而不是读入垃圾值"""
+        import hashlib
+        import tempfile
+
+        from fastapi_augment.factory import _resolve_docs_secret
+
+        monkeypatch.delenv('DOCS_AUTH_SECRET', raising=False)
+        monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+
+        digest = hashlib.sha256(b'app-y').hexdigest()[:16]
+        (tmp_path / f'fastapi-augment-docs-secret-{digest}').write_text('')
+        secret = _resolve_docs_secret(None, cache_key='app-y')
+        assert len(secret) == 64
+
+    def test_env_var_wins_over_file(self, monkeypatch, tmp_path):
+        """配置了 DOCS_AUTH_SECRET 时不读共享文件"""
+        import tempfile
+
+        from fastapi_augment.factory import _resolve_docs_secret
+
+        monkeypatch.setenv('DOCS_AUTH_SECRET', 'env-secret-123')
+        monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+        assert _resolve_docs_secret(None, cache_key='app-x') == 'env-secret-123'
+
+    def test_two_apps_share_cookie_across_workers(self, monkeypatch, tmp_path):
+        """端到端：同标题同凭证的两个 app 实例共享密钥，Cookie 互通"""
+        import tempfile
+
+        monkeypatch.delenv('DOCS_AUTH_SECRET', raising=False)
+        monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+
+        credentials = [{'username': 'admin', 'password': 'secret'}]
+        app_a = create_app(title='SharedApp', docs_credentials=credentials)
+        app_b = create_app(title='SharedApp', docs_credentials=credentials)
+
+        client_a = TestClient(app_a)
+        resp = client_a.post(
+            '/docs/login',
+            data={'username': 'admin', 'password': 'secret', 'next': '/docs'},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        cookie = resp.cookies.get('docs_auth')
+        assert cookie
+
+        # app_a 签发的 Cookie 在 app_b（另一"进程"）上直接放行
+        client_b = TestClient(app_b, cookies={'docs_auth': cookie})
+        resp_b = client_b.get('/docs')
+        assert resp_b.status_code == 200

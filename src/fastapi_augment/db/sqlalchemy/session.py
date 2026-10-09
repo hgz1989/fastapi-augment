@@ -40,7 +40,7 @@ class SessionFactory:
             result = await session.execute(select(User))
 
         # FastAPI dependencies
-        @app.get('/users')
+        @app.get("/users")
         async def list_users(session: AsyncSession = Depends(factory.depends_read)):
             pass
     """
@@ -179,6 +179,6 @@ class SessionFactory:
     def __repr__(self) -> str:
         engines = list(self._read_factories.keys())
         return (
-            f'SessionFactory(write_engine={self._manager.write_engine.url!s}, '
-            f'read_engines={[str(e.url) for e in engines]})'
+            f'SessionFactory(write_engine={self._manager.write_engine.url.render_as_string(hide_password=True)!s}, '
+            f'read_engines={[str(e.url.render_as_string(hide_password=True)) for e in engines]})'
         )

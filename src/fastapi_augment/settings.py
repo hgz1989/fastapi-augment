@@ -31,6 +31,9 @@ _FILE_SOURCE_MAP: dict[str, type[PydanticBaseSettingsSource]] = {
 }
 
 # 动态子类缓存：按 (原类, config_overrides) 复用子类，避免重复 type() 累积类对象
+# 极端用法（大量不同的瞬时类/配置形态）下停止写入，防止类对象无界增长；
+# 达到上限后退化为准无缓存行为，新建的类对象无强引用、可被回收
+_SUBCLASS_CACHE_LIMIT = 64
 _SUBCLASS_CACHE: dict[tuple[type, frozenset[tuple[str, Any]]], type] = {}
 
 
@@ -39,7 +42,7 @@ class AugmentBaseSettings(BaseSettings):
 
     支持多种配置来源，通过不同类方法加载::
 
-        from fastapi_augment.config import AugmentBaseSettings
+        from fastapi_augment.settings import AugmentBaseSettings
 
         class Settings(AugmentBaseSettings):
             database_url: str
@@ -103,7 +106,7 @@ class AugmentBaseSettings(BaseSettings):
 
         for key, value in {**config_kwargs, **field_overrides}.items():
             if key in _CONFIG_KEYS:
-                config_overrides[key] = str(value) if key == 'env_file' and value is not None else value
+                config_overrides[key] = value
             else:
                 fields[key] = value
 
@@ -120,14 +123,22 @@ class AugmentBaseSettings(BaseSettings):
                 )
 
             # 按 (原类, 配置覆盖) 缓存动态子类，避免重复创建累积类对象
-            cache_key = (cls, frozenset(config_overrides.items()))
-            sub_cls = _SUBCLASS_CACHE.get(cache_key)
+            # 配置值可能不可哈希（如列表形式的 env_file / secrets_dir），此时跳过缓存
+            try:
+                cache_key: tuple[type, frozenset[tuple[str, Any]]] | None = (
+                    cls, frozenset(config_overrides.items())
+                )
+            except TypeError:
+                cache_key = None
+
+            sub_cls = _SUBCLASS_CACHE.get(cache_key) if cache_key is not None else None
             if sub_cls is None:
                 sub_cls = type(f'{cls.__name__}__env', (cls,), class_attrs)
-                _SUBCLASS_CACHE[cache_key] = sub_cls
+                if cache_key is not None and len(_SUBCLASS_CACHE) < _SUBCLASS_CACHE_LIMIT:
+                    _SUBCLASS_CACHE[cache_key] = sub_cls
             return sub_cls(**fields)
 
-        return cls(**fields)
+        return cast(Callable[..., AugmentBaseSettings], cls)(**fields)
 
     # ------------------------------
     # 工厂方法
@@ -183,7 +194,7 @@ class AugmentBaseSettings(BaseSettings):
         return cast(Self, cls._build({'env_file': env_file}, kwargs))
 
     @classmethod
-    def from_json(cls, json_file: str | Path, **kwargs: Any) -> AugmentBaseSettings:
+    def from_json(cls, json_file: str | Path, **kwargs: Any) -> Self:
         """从 JSON 文件加载配置
 
         Args:
@@ -197,10 +208,10 @@ class AugmentBaseSettings(BaseSettings):
 
             cfg = Settings.from_json('config.json')
         """
-        return cls._build({'json_file': json_file}, kwargs)
+        return cast(Self, cls._build({'json_file': json_file}, kwargs))
 
     @classmethod
-    def from_yaml(cls, yaml_file: str | Path, **kwargs: Any) -> AugmentBaseSettings:
+    def from_yaml(cls, yaml_file: str | Path, **kwargs: Any) -> Self:
         """从 YAML 文件加载配置
 
         Args:
@@ -215,10 +226,10 @@ class AugmentBaseSettings(BaseSettings):
 
             cfg = Settings.from_yaml('config.yaml')
         """
-        return cls._build({'yaml_file': yaml_file}, kwargs)
+        return cast(Self, cls._build({'yaml_file': yaml_file}, kwargs))
 
     @classmethod
-    def from_toml(cls, toml_file: str | Path, **kwargs: Any) -> AugmentBaseSettings:
+    def from_toml(cls, toml_file: str | Path, **kwargs: Any) -> Self:
         """从 TOML 文件加载配置
 
         Args:
@@ -232,7 +243,7 @@ class AugmentBaseSettings(BaseSettings):
 
             cfg = Settings.from_toml('config.toml')
         """
-        return cls._build({'toml_file': toml_file}, kwargs)
+        return cast(Self, cls._build({'toml_file': toml_file}, kwargs))
 
     @staticmethod
     def _make_customise_sources(file_source_keys: list[str]) -> Callable:
@@ -246,7 +257,9 @@ class AugmentBaseSettings(BaseSettings):
         Returns:
             用于绑定为 staticmethod 的函数
         """
-        sources_to_add = [_FILE_SOURCE_MAP[key] for key in file_source_keys]
+        sources_to_add: list[Callable[..., PydanticBaseSettingsSource]] = [
+            _FILE_SOURCE_MAP[key] for key in file_source_keys
+        ]
 
         def _customise(
                 cls: type[AugmentBaseSettings],
@@ -255,8 +268,10 @@ class AugmentBaseSettings(BaseSettings):
                 dotenv_settings: PydanticBaseSettingsSource,
                 file_secret_settings: PydanticBaseSettingsSource,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
-            file_sources = tuple(src_cls(cls) for src_cls in sources_to_add)
+            file_sources: tuple[PydanticBaseSettingsSource, ...] = tuple(
+                src_cls(cls) for src_cls in sources_to_add
+            )
             # 优先级：init > env > dotenv > 文件配置 > secrets
-            return (init_settings, env_settings, dotenv_settings, *file_sources, file_secret_settings)
+            return init_settings, env_settings, dotenv_settings, *file_sources, file_secret_settings
 
         return _customise

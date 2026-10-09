@@ -4,6 +4,7 @@
 @Description    : 中间件模块
 """
 from .base import BaseASGIMiddleware
+from .docs_auth import DocsAuthMiddleware
 from .request_id import (
     get_request_id,
     set_request_id,
@@ -13,6 +14,7 @@ from .request_id import (
 
 __all__ = [
     'BaseASGIMiddleware',
+    'DocsAuthMiddleware',
     'get_request_id',
     'set_request_id',
     'reset_request_id',

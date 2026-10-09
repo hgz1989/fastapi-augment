@@ -23,6 +23,7 @@ ORJSON_INSTALLED: bool = False
 ORJSON_DEFAULT_OPTS: int = 0
 _oj_dumps: Any = None
 _oj_loads: Any = None
+_orjson: Any = None
 
 try:
     import orjson as _orjson
@@ -31,7 +32,7 @@ try:
     _oj_dumps = _orjson.dumps
     _oj_loads = _orjson.loads
 except ImportError:
-    pass
+    _orjson = None
 
 
 # orjson OPT_INDENT_2 的常量值（1），避免直接依赖 orjson 安装；
@@ -80,6 +81,10 @@ def random_string(
         exclude: str | None = None,
 ) -> str:
     """生成随机字符串，支持自定义字符集
+
+    注意：本函数基于 ``random`` 模块，**非加密安全随机**，输出不可用于
+    密码、令牌、密钥等安全敏感场景；此类场景请使用 :mod:`secrets` 模块
+    （如 ``secrets.token_urlsafe``）
 
     Returns:
         指定长度的随机字符串

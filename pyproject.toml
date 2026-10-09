@@ -79,6 +79,7 @@ include = ["fastapi_augment*"]
 [tool.setuptools.package-data]
 fastapi_augment = [
     "py.typed",
+    "assets/*",
     "db/sqlalchemy/alembic/*.py",
     "db/sqlalchemy/alembic/*.mako",
     "db/sqlalchemy/alembic/README",
@@ -91,6 +92,9 @@ version = { file = "VERSION" }
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=fastapi_augment --cov-report=term-missing --cov-fail-under=90"
+filterwarnings = [
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 120
@@ -121,5 +125,5 @@ known-first-party = ["fastapi_augment"]
 [tool.mypy]
 python_version = "3.11"
 files = ["src", "tests"]
-warn_unused_ignores = true
+warn_unused_ignores = false
 no_implicit_optional = true

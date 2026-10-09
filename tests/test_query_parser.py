@@ -63,6 +63,10 @@ class TestGetColumn:
         with pytest.raises(BadRequestError, match='不支持的查询字段'):
             _get_column(SampleModel, 'nonexistent')
 
+    def test_non_column_attribute_rejected(self):
+        with pytest.raises(BadRequestError, match='不支持的查询字段'):
+            _get_column(SampleModel, '__tablename__')
+
 
 class TestConvertValue:
     def test_bool_true(self):
@@ -82,8 +86,13 @@ class TestConvertValue:
         dt = _convert_value(datetime, '2026-01-15T10:30:00')
         assert isinstance(dt, datetime)
 
-    def test_invalid_returns_raw(self):
-        assert _convert_value(int, 'not_a_number') == 'not_a_number'
+    def test_invalid_raises(self):
+        with pytest.raises(BadRequestError, match='无法转换'):
+            _convert_value(int, 'not_a_number')
+
+    def test_invalid_datetime_raises(self):
+        with pytest.raises(BadRequestError, match='无法转换'):
+            _convert_value(datetime, 'not_a_date')
 
 
 class TestParseLookup:
@@ -186,6 +195,30 @@ class TestParseWhere:
         with pytest.raises(BadRequestError, match='不支持的查询字段'):
             parse_where('badfield==x', SampleModel)
 
+    def test_non_column_attribute(self):
+        with pytest.raises(BadRequestError, match='不支持的查询字段'):
+            parse_where('__tablename__==x', SampleModel)
+
+    def test_field_not_in_whitelist(self):
+        with pytest.raises(BadRequestError, match='where 仅支持字段'):
+            parse_where('age==30', SampleModel, fields={'name'})
+
+    def test_whitelist_allows_listed_field(self):
+        assert parse_where('name==alice', SampleModel, fields={'name', 'age'}) is not None
+
+    def test_value_conversion_failure(self):
+        with pytest.raises(BadRequestError, match='无法转换'):
+            parse_where('age==abc', SampleModel)
+
+    def test_between_value_conversion_failure(self):
+        with pytest.raises(BadRequestError, match='无法转换'):
+            parse_where('age~abc~60', SampleModel)
+
+    def test_deep_nesting_rejected(self):
+        deep = '(' * 40 + 'name==alice' + ')' * 40
+        with pytest.raises(BadRequestError, match='括号嵌套超过'):
+            parse_where(deep, SampleModel)
+
     def test_complex(self):
         assert parse_where('(name~=张,age~20~30);is_active!=false', SampleModel) is not None
 
@@ -207,6 +240,13 @@ class TestParseKeyword:
         with pytest.raises(BadRequestError, match='不支持的查询字段'):
             parse_keyword('alice', 'bad_field', SampleModel)
 
+    def test_field_not_in_whitelist(self):
+        with pytest.raises(BadRequestError, match='关键字搜索仅支持字段'):
+            parse_keyword('alice', 'name,age', SampleModel, fields={'name'})
+
+    def test_whitelist_allows_listed_field(self):
+        assert parse_keyword('alice', 'name', SampleModel, fields={'name', 'age'}) is not None
+
 
 class TestParseSort:
     def test_single_asc(self):
@@ -227,6 +267,13 @@ class TestParseSort:
     def test_nonexistent_field(self):
         with pytest.raises(BadRequestError, match='不支持的查询字段'):
             parse_sort('bad_field', SampleModel)
+
+    def test_field_not_in_whitelist(self):
+        with pytest.raises(BadRequestError, match='sort 仅支持字段'):
+            parse_sort('-created_at,name', SampleModel, fields={'name'})
+
+    def test_whitelist_allows_listed_field(self):
+        assert len(parse_sort('-created_at,name', SampleModel, fields={'name', 'created_at'})) == 2
 
 
 class TestBuildQueryExpressions:
@@ -259,3 +306,7 @@ class TestBuildQueryExpressions:
     def test_invalid_where_raises(self):
         with pytest.raises(BadRequestError):
             build_query_expressions(SampleModel, where='badfield==x')
+
+    def test_fields_whitelist(self):
+        with pytest.raises(BadRequestError, match='where 仅支持字段'):
+            build_query_expressions(SampleModel, where='age==30', fields={'name'})

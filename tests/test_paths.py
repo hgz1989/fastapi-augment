@@ -37,7 +37,7 @@ class TestFindProjectRoot:
         assert find_project_root(code_file) == root.resolve()
 
     def test_default_is_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        (tmp_path / 'setup.py').write_text('')
+        (tmp_path / 'logging_setup.py').write_text('')
         monkeypatch.chdir(tmp_path)
         assert find_project_root() == tmp_path.resolve()
 

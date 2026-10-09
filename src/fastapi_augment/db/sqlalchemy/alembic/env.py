@@ -1,6 +1,5 @@
 import asyncio
 import importlib
-from logging import getLogger
 from logging.config import fileConfig
 from os import environ
 from urllib.parse import urlparse
@@ -10,8 +9,6 @@ from sqlalchemy import Connection, pool, engine_from_config
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from fastapi_augment.db.sqlalchemy import Base
-
-_logger = getLogger(__name__)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -31,16 +28,25 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 
 # 从环境变量 FASTAPI_AUGMENT_MODELS 动态导入用户模型模块，
-# 使模型注册到 Base.metadata，autogenerate 才能检测到变更
+# 使模型注册到 Base.metadata，autogenerate 才能检测到变更。
+# 导入失败必须硬报错：模型缺失时 autogenerate 会把数据库中的表
+# 判定为“多余”并生成 DROP 语句，静默降级为 warning 会导致误删表
 _models_env = environ.get('FASTAPI_AUGMENT_MODELS', '')
 if _models_env:
+    _failed_models: list[str] = []
     for _mod in _models_env.split(','):
         _mod = _mod.strip()
         if _mod:
             try:
                 importlib.import_module(_mod)
             except ImportError as _e:
-                _logger.warning('无法导入模型模块 %s: %s', _mod, _e)
+                _failed_models.append(f'  - {_mod}: {_e}')
+    if _failed_models:
+        raise ImportError(
+            '无法导入以下模型模块（FASTAPI_AUGMENT_MODELS），'
+            '模型未注册会导致 autogenerate 误判表结构:\n'
+            + '\n'.join(_failed_models)
+        )
 
 target_metadata = Base.metadata
 
@@ -49,6 +55,25 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
+
+
+# 各数据库的异步驱动名（URL scheme 中 + 后面的部分），统一小写存储。
+# urlparse 返回的 scheme 已被小写化，dmAsync 因此按 dmasync 匹配
+_ASYNC_DRIVERS: frozenset[str] = frozenset(
+    d.lower() for d in ('asyncpg', 'asyncmy', 'aiomysql', 'aiosqlite', 'aioodbc', 'dmAsync')
+)
+
+
+def _is_async_url(url: str) -> bool:
+    """判断连接 URL 的驱动是否为异步驱动（大小写不敏感）
+
+    Args:
+        url: SQLAlchemy 连接 URL
+
+    Returns:
+        是否为异步驱动
+    """
+    return urlparse(url).scheme.split('+')[-1].lower() in _ASYNC_DRIVERS
 
 
 def run_migrations_offline() -> None:
@@ -120,10 +145,7 @@ def run_migrations_online() -> None:
     if not url:
         raise ValueError('SQLAlchemy URL 未设置')
 
-    async_drivers = {'asyncpg', 'asyncmy', 'aiomysql', 'aiosqlite', 'aioodbc'}
-    is_async = urlparse(url).scheme.split('+')[-1] in async_drivers
-
-    if is_async:
+    if _is_async_url(url):
         asyncio.run(run_async_migrations())
     else:
         connectable = engine_from_config(

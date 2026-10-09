@@ -1,21 +1,21 @@
 """
 @Author         : hangu
 @CreateDate     : 2026/9/20
-@Description    : config.database_settings 模块测试 — DatabaseSettings 数据库配置
+@Description    : db.sqlalchemy.settings 模块测试 — NestedDatabaseSettings 数据库配置
                   字段式设计：engine / host / port 等基础字段 + 自动推导驱动与端口
 """
 
+from typing import ClassVar
+
 import pytest
 
-from fastapi_augment.config import (
-    DatabaseSettings,
-    AugmentBaseSettings
-)
+from fastapi_augment.db.sqlalchemy import DatabaseSettings
+from fastapi_augment.settings import AugmentBaseSettings
 
 
 # ── 默认值推导 ──────────────────────────────────────────────────────────
 
-class TestDatabaseSettingsDefaults:
+class TestNestedDatabaseSettingsDefaults:
 
     def test_default_values(self):
         """全部字段带默认值，可无参实例化"""
@@ -77,7 +77,7 @@ class TestDatabaseSettingsDefaults:
 
 # ── URL 构建 ────────────────────────────────────────────────────────────
 
-class TestDatabaseSettingsUrl:
+class TestNestedDatabaseSettingsUrl:
 
     def test_postgresql_url(self):
         db = DatabaseSettings(engine='postgresql', host='localhost', user='u', password='p', name='app')
@@ -117,16 +117,28 @@ class TestDatabaseSettingsUrl:
         db = DatabaseSettings(engine='sqlite', name='app.db')
         assert db.sync_url == 'sqlite+pysqlite:///app.db'
 
+    def test_unknown_engine_empty_driver_falls_back(self):
+        """未知 engine 无默认驱动时 drivername 回退纯 engine，不生成 engine+:// 无效 URL"""
+        db = DatabaseSettings(engine='cockroachdb', host='h', user='u', password='p', name='app')
+        assert db.url == 'cockroachdb://u:p@h:0/app'
+        assert db.sync_url == 'cockroachdb://u:p@h:0/app'
+
     def test_url_cached(self):
         """url 为 cached_property，重复访问返回同一对象"""
         db = DatabaseSettings(engine='postgresql', host='localhost', user='u', password='p', name='app')
         assert db.url is db.url
         assert db.sync_url is db.sync_url
 
+    def test_placeholder_engine_url_raises(self):
+        """engine 未配置（占位符）时访问 url 直接报错，而非连接时才失败"""
+        db = DatabaseSettings()
+        with pytest.raises(ValueError, match='engine 未配置'):
+            _ = db.url
+
 
 # ── Query 参数构建 ──────────────────────────────────────────────────────
 
-class TestDatabaseSettingsQuery:
+class TestNestedDatabaseSettingsQuery:
 
     def test_extra_query_parsed(self):
         db = DatabaseSettings(
@@ -174,7 +186,7 @@ class TestDatabaseSettingsQuery:
 
 # ── 派生属性 ────────────────────────────────────────────────────────────
 
-class TestDatabaseSettingsProperties:
+class TestNestedDatabaseSettingsProperties:
 
     def test_is_file_based(self):
         """sqlite 为文件型数据库"""
@@ -189,23 +201,9 @@ class TestDatabaseSettingsProperties:
         assert DatabaseSettings(engine='postgresql', host='h').requires_refresh is False
 
 
-# ── 校验与依赖 ──────────────────────────────────────────────────────────
-
-class TestDatabaseSettingsValidation:
-
-    def test_url_requires_sqlalchemy(self, monkeypatch: pytest.MonkeyPatch):
-        """SQLAlchemy 未安装时访问 url 抛 ImportError"""
-        import fastapi_augment.config.database_settings as db_settings_module
-
-        monkeypatch.setattr(db_settings_module, 'URL', None)
-        db = DatabaseSettings(engine='sqlite', name='app.db')
-        with pytest.raises(ImportError, match='sqlalchemy'):
-            _ = db.url
-
-
 # ── 与 AugmentBaseSettings 集成 ─────────────────────────────────────────
 
-class TestDatabaseSettingsWithBaseSettings:
+class TestNestedDatabaseSettingsWithBaseSettings:
 
     def test_nested_env_loading(self, monkeypatch: pytest.MonkeyPatch):
         """作为嵌套字段，通过 env_nested_delimiter 从环境变量加载"""
@@ -236,3 +234,122 @@ class TestDatabaseSettingsWithBaseSettings:
         assert settings.database.engine == 'sqlite'
         assert settings.database.name == 'app.db'
         assert settings.database.url == 'sqlite+aiosqlite:///app.db'
+
+
+# ── to_node_config 桥接 ──────────────────────────────────────────────
+
+class TestToNodeConfig:
+    """to_node_config：池参数 / 超时 / SSL 证书桥接到 NodeConfig"""
+
+    PG: ClassVar[dict[str, str]] = {
+        'engine': 'postgresql',
+        'host': 'localhost',
+        'user': 'u',
+        'password': 'p',
+        'name': 'app',
+    }
+
+    def test_pool_and_echo_mapped(self):
+        """池参数与 echo 直接映射到 NodeConfig 同名字段"""
+        from fastapi_augment.db.sqlalchemy.engine import NodeConfig
+
+        db = DatabaseSettings(
+            **self.PG,
+            pool_enabled=False, pool_size=7, max_overflow=15,
+            pool_timeout=12, pool_recycle=600, pool_pre_ping=False, echo=True,
+        )
+        node = db.to_node_config()
+        assert isinstance(node, NodeConfig)
+        assert node.url == db.url
+        assert node.pool_enabled is False
+        assert node.pool_size == 7
+        assert node.max_overflow == 15
+        assert node.pool_timeout == 12
+        assert node.pool_recycle == 600
+        assert node.pool_pre_ping is False
+        assert node.echo is True
+
+    def test_connect_and_command_timeout_asyncpg(self):
+        """postgresql：connect_timeout→timeout，command_timeout→command_timeout"""
+        db = DatabaseSettings(**self.PG, connect_timeout=5, command_timeout=9)
+        node = db.to_node_config()
+        assert node.connect_args == {'timeout': 5, 'command_timeout': 9}
+
+    def test_connect_timeout_mysql(self):
+        """mysql：connect_timeout→connect_timeout；command_timeout 无映射不写入"""
+        db = DatabaseSettings(
+            engine='mysql', host='h', user='u', password='p', name='n',
+            connect_timeout=7, command_timeout=9,
+        )
+        node = db.to_node_config()
+        assert node.connect_args == {'connect_timeout': 7}
+
+    def test_zero_timeouts_omitted(self):
+        """timeout 为 0 时不写入 connect_args"""
+        db = DatabaseSettings(**self.PG, connect_timeout=0, command_timeout=0)
+        assert db.to_node_config().connect_args == {}
+
+    def test_unknown_engine_timeouts_omitted(self):
+        """无映射的引擎（dm 等）不写超时，避免驱动报错"""
+        db = DatabaseSettings(
+            engine='dm', host='h', user='u', password='p', name='n',
+            connect_timeout=5, command_timeout=9,
+        )
+        assert db.to_node_config().connect_args == {}
+
+    def test_ssl_paths_mysql(self):
+        """mysql：证书路径直接作为 aiomysql connect_args"""
+        db = DatabaseSettings(
+            engine='mysql', host='h', user='u', password='p', name='n',
+            ssl_ca='/ca.pem', ssl_cert='/c.pem', ssl_key='/k.key',
+        )
+        node = db.to_node_config()
+        assert node.connect_args['ssl_ca'] == '/ca.pem'
+        assert node.connect_args['ssl_cert'] == '/c.pem'
+        assert node.connect_args['ssl_key'] == '/k.key'
+
+    def test_ssl_ca_postgresql_context(self, monkeypatch):
+        """postgresql：ssl_ca 传入 create_default_context，结果作为 connect_args['ssl']"""
+        import ssl as _ssl
+
+        sentinel = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+        captured: dict = {}
+
+        def fake_create_default_context(cafile=None):
+            captured['cafile'] = cafile
+            return sentinel
+
+        monkeypatch.setattr(_ssl, 'create_default_context', fake_create_default_context)
+        db = DatabaseSettings(**self.PG, ssl_ca='/ca.pem')
+        node = db.to_node_config()
+        assert node.connect_args['ssl'] is sentinel
+        assert captured['cafile'] == '/ca.pem'
+
+    def test_ssl_cert_postgresql_loads_chain(self, monkeypatch):
+        """postgresql：ssl_cert / ssl_key 传入 load_cert_chain"""
+        import ssl as _ssl
+
+        class _FakeContext:
+            loaded: tuple | None = None
+
+            def load_cert_chain(self, certfile, keyfile=None, password=None):
+                self.loaded = (certfile, keyfile)
+
+        fake = _FakeContext()
+        monkeypatch.setattr(_ssl, 'create_default_context', lambda cafile=None: fake)
+        db = DatabaseSettings(**self.PG, ssl_cert='/c.pem', ssl_key='/k.key')
+        node = db.to_node_config()
+        assert node.connect_args['ssl'] is fake
+        assert fake.loaded == ('/c.pem', '/k.key')
+
+    def test_no_ssl_postgresql_no_context(self):
+        """postgresql 未配置证书时不构造 SSLContext"""
+        db = DatabaseSettings(**self.PG)
+        assert 'ssl' not in db.to_node_config().connect_args
+
+    def test_sqlite_node_config(self):
+        """sqlite 也能桥接（connect_args 为空，池参数交给引擎侧忽略）"""
+        db = DatabaseSettings(engine='sqlite', name='app.db')
+        node = db.to_node_config()
+        assert node.url == 'sqlite+aiosqlite:///app.db'
+        assert node.connect_args == {}

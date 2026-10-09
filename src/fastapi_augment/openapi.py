@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from pydantic import ValidationError
 
 _logger = getLogger(__name__)
 
@@ -19,6 +20,10 @@ class OpenAPICustomConfig:
 
     remove_422: bool = True
     remove_validation_error_schema: bool = True
+    # ReDoc 顶部 logo（OpenAPI info.x-logo 扩展）：data URI 或 URL；
+    # ReDoc 原生读取 x-logo 渲染，Swagger UI 不支持该扩展
+    logo: str | None = None
+    logo_alt_text: str = ''
 
 
 def configure_openapi_schema(
@@ -62,13 +67,18 @@ def configure_openapi_schema(
                 kwargs['separate_input_output_schemas'] = app.separate_input_output_schemas
 
             openapi_schema = get_openapi(**kwargs)
-        except Exception:
+        except (ValidationError, TypeError, RuntimeError):
             # 生成openapi异常，不阻断服务启动；记录完整堆栈便于排查
             _logger.exception('Generate openapi schema failed')
             return None
 
         components = openapi_schema.setdefault('components', {})
         schemas = components.setdefault('schemas', {})
+
+        # ReDoc 顶部 logo：注入 OpenAPI info.x-logo 扩展（ReDoc 原生支持）
+        if cfg.logo:
+            info = openapi_schema.setdefault('info', {})
+            info['x-logo'] = {'url': cfg.logo, 'altText': cfg.logo_alt_text}
 
         # 移除校验错误模型
         if cfg.remove_validation_error_schema:

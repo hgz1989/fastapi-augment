@@ -1,6 +1,7 @@
 """
 health 模块测试 — 健康检查包
 """
+import asyncio
 import time
 
 from fastapi import FastAPI
@@ -16,7 +17,7 @@ from fastapi_augment.health import (
     create_health_router,
     BaseChecker
 )
-from fastapi_augment.health.checker import (
+from fastapi_augment.health.base import (
     _worst_status
 )
 
@@ -31,7 +32,7 @@ class TestCheckResult:
         assert r.name == 'test'
         assert r.status == STATUS_HEALTHY
         assert r.latency_ms == 1.5
-        assert r.details is None
+        assert r.details == {}
 
     def test_with_details(self):
         r = CheckResult(name='db', status=STATUS_UNHEALTHY, details={'error': 'timeout'})
@@ -95,6 +96,51 @@ class TestDatabaseChecker:
         result = await DatabaseChecker().check(app)
         assert result.status == STATUS_UNHEALTHY
         assert 'engine_manager not found' in result.details['error']
+
+    async def test_check_healthy_with_engine_manager(self):
+        """engine_manager 存在且数据库连通时返回 healthy，并统计 latency"""
+        from fastapi_augment.db.sqlalchemy import (
+            ClusterTopology,
+            EngineManager,
+            NodeConfig,
+        )
+
+        manager = EngineManager(
+            ClusterTopology(primary=NodeConfig(url='sqlite+aiosqlite:///:memory:'))
+        ).start()
+        app = FastAPI()
+        app.state.engine_manager = manager
+        try:
+            result = await DatabaseChecker().check(app)
+            assert result.status == STATUS_HEALTHY
+            assert result.latency_ms >= 0
+        finally:
+            await manager.dispose()
+
+    async def test_check_unhealthy_when_connect_fails(self):
+        """数据库连接失败时返回 unhealthy 并携带错误信息，不向外抛出"""
+        app = FastAPI()
+
+        class BrokenConnection:
+            async def __aenter__(self):
+                raise RuntimeError('connection refused')
+
+            async def __aexit__(self, *args):
+                return None
+
+        class BrokenEngine:
+            def connect(self):
+                return BrokenConnection()
+
+        class BrokenManager:
+            write_engine = BrokenEngine()
+
+        app.state.engine_manager = BrokenManager()  # type: ignore[assignment]
+
+        result = await DatabaseChecker().check(app)
+        assert result.status == STATUS_UNHEALTHY
+        assert result.latency_ms >= 0
+        assert 'connection refused' in result.details['error']
 
 
 # ── create_health_router ──────────────────────────────────────────────
@@ -197,6 +243,46 @@ class TestHealthRouter:
         broken = next(c for c in data['checks'] if c['name'] == 'broken')
         assert broken['status'] == STATUS_UNHEALTHY
         assert 'boom' in broken['details']['error']
+
+    def test_checkers_run_concurrently_and_keep_order(self):
+        """各检查器并发执行（排前者不等排后者完成），结果仍按注册顺序聚合"""
+
+        started = asyncio.Event()
+
+        class WaitsForPeerChecker(BaseChecker):
+            @property
+            def name(self):
+                return 'waits'
+
+            async def check(self, app):
+                # 若串行执行，排在前面的本检查器永远等不到后面检查器的信号
+                for _ in range(200):
+                    if started.is_set():
+                        return CheckResult(name=self.name, status=STATUS_HEALTHY)
+                    await asyncio.sleep(0.005)
+                return CheckResult(name=self.name, status=STATUS_UNHEALTHY)
+
+        class SetterChecker(BaseChecker):
+            @property
+            def name(self):
+                return 'setter'
+
+            async def check(self, app):
+                started.set()
+                return CheckResult(name=self.name, status=STATUS_HEALTHY)
+
+        app = _make_app_with_health(
+            include_db_check=False,
+            extra_checkers=[WaitsForPeerChecker(), SetterChecker()],
+        )
+        client = TestClient(app)
+
+        resp = client.get('/health')
+        assert resp.status_code == 200
+
+        data = resp.json()
+        assert [c['name'] for c in data['checks']] == ['app', 'waits', 'setter']
+        assert all(c['status'] == STATUS_HEALTHY for c in data['checks'])
 
     def test_custom_tags(self):
         """自定义 OpenAPI 标签"""

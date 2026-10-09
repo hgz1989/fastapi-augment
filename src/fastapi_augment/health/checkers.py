@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
-from .checker import (
+from .base import (
     BaseChecker,
     CheckResult,
     STATUS_HEALTHY,

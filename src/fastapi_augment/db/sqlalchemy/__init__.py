@@ -9,6 +9,12 @@ from .engine import (
     ClusterTopology,
     EngineManager
 )
+from .migrate import (
+    init_project,
+    generate_migration,
+    upgrade,
+    downgrade
+)
 from .model_base import ModelBase
 from .query_parser import (
     parse_lookup,
@@ -19,6 +25,7 @@ from .query_parser import (
 )
 from .repository_base import RepositoryBase
 from .session import SessionFactory
+from .settings import DatabaseSettings
 
 __all__ = [
     'Base',
@@ -32,5 +39,10 @@ __all__ = [
     'parse_sort',
     'build_query_expressions',
     'RepositoryBase',
-    'SessionFactory'
+    'SessionFactory',
+    'init_project',
+    'generate_migration',
+    'upgrade',
+    'downgrade',
+    'DatabaseSettings'
 ]

@@ -25,8 +25,10 @@ class ORMSchemaBase(SchemaBase):
     """全局所有Pydantic Schema基类
     统一配置、统一行为
     """
+    # Pydantic 会自动继承父类 model_config（populate_by_name/extra/alias_generator），
+    # 无需 **SchemaBase.model_config 重复展开（Pyright 会报参数重复赋值）；
+    # 这里只需补充 from_attributes 与 arbitrary_types_allowed
     model_config = ConfigDict(
-        **SchemaBase.model_config,  # 复制父类配置
         from_attributes=True,
         arbitrary_types_allowed=True,
     )
