@@ -23,8 +23,7 @@ from fastapi_augment.schemas.response import (
     APIResponse,
     CODE_SUCCESS,
     response_success,
-    response_fail,
-    build_response
+    response_fail
 )
 
 
@@ -261,23 +260,6 @@ class TestResponseFail:
     def test_with_extra(self):
         resp = response_fail(code=1, extra={'retry': True})
         assert resp.extra == {'retry': True}
-
-
-# ── build_response ────────────────────────────────────────────────────
-
-class TestBuildResponse:
-
-    def test_default(self):
-        resp = build_response()
-        assert resp.code == CODE_SUCCESS
-        assert resp.data is None
-
-    def test_full(self):
-        resp = build_response(code=0, message='ok', data='d', extra='e')
-        assert resp.code == 0
-        assert resp.message == 'ok'
-        assert resp.data == 'd'
-        assert resp.extra == 'e'
 
 
 # ── BeijingDatetime ──────────────────────────────────────────────────
