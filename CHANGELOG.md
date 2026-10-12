@@ -4,6 +4,24 @@
 
 ---
 
+## [0.2.1] — 2026-10-12
+
+### Added
+
+- **ASGI 导入校验支持 uvicorn factory 模式** — `validate_asgi_import` 新增 `factory` 参数（对应 `uvicorn --factory`）：校验导入串指向的工厂可无参调用（`app:create_app` 形态），只做结构校验、不实际执行工厂；配合 `uvicorn.run(..., factory=True)` 实现应用延迟构建
+
+### Changed
+
+- **健康检查并发执行** — 各检查器 `asyncio.gather` 并行探测、互不阻塞，结果仍按注册顺序聚合；单个检查器异常照旧兜底为 unhealthy
+
+### Fixed
+
+- **`BeijingDatetime` naive 时区兜底** — `serialize_beijing_dt` 对无时区的 datetime 统一按 UTC 解释（与"数据库存储 UTC"约定一致），不再随部署机器本地时区偏移
+- **生命周期注册表误传字符串静默失效修复** — `app.state.registries` 传入 `str`/`bytes` 时显式抛 `TypeError`；此前字符串被当作序列逐字符拆分后过滤为空，用户注册表静默不执行
+- **`from_env` 动态子类缓存封顶** — `_SUBCLASS_CACHE` 达 64 条后停止写入，长期运行 + 频繁不同配置时不再缓慢累积类对象
+
+---
+
 ## [0.2.0] — 2026-10-08
 
 ### Added
@@ -22,13 +40,6 @@
 - **`create_app` 默认版本单一事实源** — 不再硬编码，自动读取包发行元数据（`importlib.metadata`），与 `VERSION` 文件保持同步
 - **`SessionFactory.__repr__` 密码脱敏** — 输出 URL 时隐藏密码，避免调试日志泄漏凭据
 - **示例清理** — 移除 `examples/demo.py` 与 `examples/.env` 中的残留乱写占位文案
-- **健康检查并发执行** — 各检查器 `asyncio.gather` 并行探测、互不阻塞，结果仍按注册顺序聚合；单个检查器异常照旧兜底为 unhealthy
-
-### Fixed
-
-- **`BeijingDatetime` naive 时区兜底** — `serialize_beijing_dt` 对无时区的 datetime 统一按 UTC 解释（与"数据库存储 UTC"约定一致），不再随部署机器本地时区偏移
-- **生命周期注册表误传字符串静默失效修复** — `app.state.registries` 传入 `str`/`bytes` 时显式抛 `TypeError`；此前字符串被当作序列逐字符拆分后过滤为空，用户注册表静默不执行
-- **`from_env` 动态子类缓存封顶** — `_SUBCLASS_CACHE` 达 64 条后停止写入，长期运行 + 频繁不同配置时不再缓慢累积类对象
 
 ### Removed
 
@@ -245,7 +256,8 @@
 | `middlewares/` | `RequestIdMiddleware`（ULID 格式），`ContextVar` 全链路传递 |
 | `openapi.py` | OpenAPI schema 自动清理 422 响应与验证错误模型 |
 
-[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.0...develop
+[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.1...develop
+[0.2.1]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.1
 [0.2.0]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.4...v0.1.5

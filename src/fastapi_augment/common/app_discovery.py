@@ -14,6 +14,7 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib import import_module
+from inspect import signature
 from logging import getLogger
 from pathlib import Path
 from pkgutil import walk_packages
@@ -150,22 +151,28 @@ def _parse_import_string(import_string: str) -> tuple[str, str]:
     return module, attr
 
 
-def validate_asgi_import(import_string: str) -> None:
+def validate_asgi_import(import_string: str, *, factory: bool = False) -> None:
     """校验 ASGI 应用导入字符串是否真实存在
 
     规则：
     1. 导入字符串为空（''）直接报错
     2. 格式须为 ``module:attr``（无冒号时默认取属性 ``app``）
     3. 模块必须可导入、属性必须真实存在
-    4. 属性对象必须是可调用的 ASGI 应用（与 uvicorn 运行要求一致，
+    4. 非 factory 模式：属性必须是可调用的 ASGI 应用（与 uvicorn 运行要求一致，
        不限于 FastAPI；判定规则见 ``common.asgi_types.is_asgi_app``）
+    5. factory 模式（对应 ``uvicorn --factory``）：属性必须可无参调用，由 uvicorn
+       运行时执行 ``attr()`` 生成应用实例；此处只做结构校验，不实际调用工厂
+       （调用会触发应用构建的副作用，与延迟构建的初衷相悖）
 
     Args:
         import_string: uvicorn 导入串，如 ``apps.platform:platform_app``
+            或 factory 模式下的 ``app:create_app``
+        factory: 是否按 uvicorn factory 模式校验（对应 ``uvicorn --factory``）
 
     Raises:
         ValueError: 导入串为空或格式错误
         RuntimeError: 模块无法导入 / 属性不存在 / 不是可调用的 ASGI 应用
+            （factory 模式下为属性不可调用或无法无参调用）
     """
     module_name, attr = _parse_import_string(import_string)
     try:
@@ -177,6 +184,21 @@ def validate_asgi_import(import_string: str) -> None:
     app = getattr(module, attr, missing)
     if app is missing:
         raise RuntimeError(f'主应用模块 {module_name!r} 中不存在属性 {attr!r}，请检查模块定义')
+    if factory:
+        # 与 uvicorn --factory 一致：运行时以 app() 无参调用生成应用
+        if not callable(app):
+            raise RuntimeError(
+                f'factory 模式下 {import_string} 必须是可调用对象'
+                f'（实际类型: {type(app).__name__}）'
+            )
+        try:
+            signature(app).bind()
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f'factory 模式下 {import_string} 必须支持无参调用'
+                f'（uvicorn 将执行 attr() 生成应用）: {exc}'
+            ) from exc
+        return
     if not is_asgi_app(app):
         # RuntimeError 语义正确（应用校验错误）
         raise RuntimeError(f'{import_string} 不是可调用的 ASGI 应用（实际类型: {type(app).__name__}）')

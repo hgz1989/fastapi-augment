@@ -135,6 +135,64 @@ class TestValidateAsgiImport:
         with pytest.raises(RuntimeError, match='不是可调用的 ASGI 应用'):
             validate_asgi_import('fake_bad_mod:app')
 
+    # ── factory 模式（对应 uvicorn --factory）─────────────────────────
+
+    def test_factory_zero_arg_callable_passes(self, monkeypatch: pytest.MonkeyPatch):
+        module = ModuleType('fake_factory_mod')
+
+        def create_app():
+            return object()
+
+        module.create_app = create_app  # type: ignore[attr-defined]
+        monkeypatch.setitem(_sys_modules, 'fake_factory_mod', module)
+        validate_asgi_import('fake_factory_mod:create_app', factory=True)
+
+    def test_factory_all_defaults_callable_passes(self, monkeypatch: pytest.MonkeyPatch):
+        """带默认值的参数等同无参可调用"""
+        module = ModuleType('fake_factory_default_mod')
+
+        def create_app(debug: bool = False):
+            return object()
+
+        module.create_app = create_app  # type: ignore[attr-defined]
+        monkeypatch.setitem(_sys_modules, 'fake_factory_default_mod', module)
+        validate_asgi_import('fake_factory_default_mod:create_app', factory=True)
+
+    def test_factory_required_args_raises(self, monkeypatch: pytest.MonkeyPatch):
+        """工厂函数有必填参数时，uvicorn 以 attr() 调用会失败，应提前报错"""
+        module = ModuleType('fake_factory_args_mod')
+
+        def create_app(settings):  # pragma: no cover - 仅签名用于校验
+            return object()
+
+        module.create_app = create_app  # type: ignore[attr-defined]
+        monkeypatch.setitem(_sys_modules, 'fake_factory_args_mod', module)
+        with pytest.raises(RuntimeError, match='无参调用'):
+            validate_asgi_import('fake_factory_args_mod:create_app', factory=True)
+
+    def test_factory_non_callable_raises(self, monkeypatch: pytest.MonkeyPatch):
+        module = ModuleType('fake_factory_bad_mod')
+        module.create_app = 'not-a-callable'  # type: ignore[attr-defined]
+        monkeypatch.setitem(_sys_modules, 'fake_factory_bad_mod', module)
+        with pytest.raises(RuntimeError, match='必须是可调用对象'):
+            validate_asgi_import('fake_factory_bad_mod:create_app', factory=True)
+
+    def test_factory_asgi_app_instance_rejected(self, monkeypatch: pytest.MonkeyPatch):
+        """ASGI 应用实例需要 (scope, receive, send) 三参，factory 模式下不可无参调用"""
+        module = ModuleType('fake_factory_app_mod')
+
+        async def app(scope, receive, send):
+            ...
+
+        module.app = app  # type: ignore[attr-defined]
+        monkeypatch.setitem(_sys_modules, 'fake_factory_app_mod', module)
+        with pytest.raises(RuntimeError, match='无参调用'):
+            validate_asgi_import('fake_factory_app_mod:app', factory=True)
+
+    def test_factory_flag_does_not_affect_default_mode(self, apps_package: Path):
+        """不带 factory 标志时行为不变：ASGI 应用直接通过"""
+        validate_asgi_import('apps.platform:platform_app')
+
 
 # ── ASGIAppSpec ─────────────────────────────────────────────────────
 
