@@ -867,6 +867,13 @@ app = create_app(
   就重定向到哪个路径的登录页
 - **自定义路径** — `docs_url` / `redoc_url` / `openapi_url` 传入自定义值时，保护范围
   自动跟随；全部禁用（传 `None`）时不挂中间件
+- **子应用挂载** — 受保护路径按**各应用自身的 `docs_url` / `redoc_url` / `openapi_url`
+  配置自动发现**（首个请求时递归收集、带挂载前缀；子应用用自定义路径如
+  `/api-docs` 也一并受保护，之后新增挂载需重启生效），登录页为 `<路径>/login`，
+  一份 Cookie 通用于主应用与全部子应用的文档
+- **root_path 反向代理** — 主应用挂在 `/gateway` 前缀下（`root_path='/gateway'`）时，
+  无论反向代理是否剥离前缀（`/gateway/xxx/docs` 或 `/xxx/docs` + root_path），
+  均能正确识别并保护；登录重定向与表单地址自动带 `root_path` 前缀
 - **安全细节** — 密码比较使用恒定时间算法（`hmac.compare_digest`）；Cookie 默认
   `HttpOnly` + `SameSite=Lax`，可配置 `Secure`；`next` 仅允许受保护路径，防开放重定向
 - 也可手动挂载：`app.add_middleware(DocsAuthMiddleware, credentials=..., secret=...)`，
