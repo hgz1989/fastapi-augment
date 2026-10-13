@@ -893,8 +893,10 @@ app = create_app(
 
 - **ReDoc** — 通过 OpenAPI `info.x-logo` 扩展注入（ReDoc 原生支持），顶部显示 logo
 - **登录页** — logo 以 data URI 内联显示在登录表单上方
-- **Swagger UI** — 不支持更换 logo（FastAPI 无对应参数，且不自建 docs 路由），保持默认
-- 显式传入的 `docs_logo` 优先于 `assets/logo.png`；两者均无时不注入 logo
+- **标签页图标** — `/docs` 与 `/redoc` 的浏览器标签页图标（favicon）同样使用该
+  logo；实现为改写 FastAPI 内置 `get_swagger_ui_html` / `get_redoc_html` 的
+  `__kwdefaults__` 默认参数（调用时读取，无需重写 docs/redoc 路由），进程级
+  生效（同进程所有应用共享）
 
 ### 应用发现 — `common.app_discovery`
 

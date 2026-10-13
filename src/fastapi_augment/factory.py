@@ -20,6 +20,10 @@ from time import sleep, time
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, APIRouter
+from fastapi.openapi.docs import (
+    get_redoc_html,
+    get_swagger_ui_html
+)
 from starlette.middleware import Middleware
 
 from .common.exception_handlers import (
@@ -105,7 +109,8 @@ def create_app(
         # （多主机部署需配置 DOCS_AUTH_SECRET，否则跨机 Cookie 失效）
         docs_auth_secret: str | None = None,
         # Docs logo：URL / data URI / 本地路径均可；None 时尝试包内 assets/logo.png
-        # （存在则自动注入 ReDoc info.x-logo 与 docs 登录页，Swagger 不支持换 logo）
+        # （存在则自动注入 ReDoc info.x-logo、登录页与 /docs /redoc 标签页图标；
+        # Swagger 页面内不支持换 logo）
         docs_logo: str | Path | None = None,
         # Docs 登录 Cookie 有效期（秒）；默认 None 表示会话级 Cookie，
         # 关闭浏览器即失效（服务端 token 有效期仍按默认 2 小时兜底）
@@ -193,8 +198,10 @@ def create_app(
         docs_logo: Docs 页面 logo。支持 URL（``http(s)://``）、``data:`` URI 或
             本地文件路径（自动转为 data URI 内联）；None 时尝试包内
             ``fastapi_augment/assets/logo.png``（存在则生效）。注入位置：
-            ReDoc 顶部（OpenAPI ``info.x-logo`` 扩展）与 docs 登录页；
-            Swagger UI 不支持更换 logo（FastAPI 无此参数，且不自建 docs 路由）
+            ReDoc 顶部（OpenAPI ``info.x-logo`` 扩展）、docs 登录页，以及
+            /docs 与 /redoc 浏览器标签页图标（favicon，改写内置页面函数的
+            ``__kwdefaults__`` 默认参数，进程级生效）；Swagger UI 页面内
+            不支持更换 logo（FastAPI 无此参数，且不自建 docs 路由）
         docs_max_age: Docs 登录 Cookie 有效期（秒），默认 None 表示
             会话级 Cookie，**关闭浏览器即失效**（服务端 token 有效期仍按默认
             2 小时兜底校验，防复制滥用）
@@ -279,7 +286,8 @@ def create_app(
             registrar(app)
 
     # ---- 7. OpenAPI 配置 ----
-    # docs logo：显式传入或包内 assets/logo.png（存在时生效），供 ReDoc 与登录页使用
+    # docs logo：显式传入或包内 assets/logo.png（存在时生效），
+    # 供 ReDoc、登录页与标签页图标使用
     _docs_logo = _resolve_docs_logo(docs_logo)
     configure_openapi_schema(
         app,
@@ -315,6 +323,18 @@ def create_app(
             'cookie_secure': docs_cookie_secure,
         }
         app.add_middleware(DocsAuthMiddleware, **opts)  # type: ignore[arg-type]
+
+    # ---- 7.6 Docs/ReDoc 标签页图标：复用配置的 logo ----
+    # 内置 docs/redoc 路由调用 get_swagger_ui_html / get_redoc_html 时不传
+    # favicon 参数，改写其 __kwdefaults__（调用时读取）即可生效，无需重写
+    # 内置路由；改写为进程级，同进程内所有应用共享
+    if _docs_logo is not None:
+        _swagger_defaults = get_swagger_ui_html.__kwdefaults__
+        if _swagger_defaults is not None:
+            _swagger_defaults['swagger_favicon_url'] = _docs_logo
+        _redoc_defaults = get_redoc_html.__kwdefaults__
+        if _redoc_defaults is not None:
+            _redoc_defaults['redoc_favicon_url'] = _docs_logo
 
     # ---- 8. 异常处理器 ----
     if register_exceptions:

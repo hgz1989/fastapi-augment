@@ -4,6 +4,14 @@
 
 ---
 
+## [Latest] — 2026-10-13
+
+### Changed
+
+- **Docs/ReDoc 标签页图标复用配置的 logo** — `create_app` 解析出的 `docs_logo`（含包内默认 `assets/logo.png`）除注入 ReDoc `info.x-logo` 与登录页外，现在同时作为 `/docs` 与 `/redoc` 的浏览器标签页图标（favicon）；实现为改写 FastAPI 内置 `get_swagger_ui_html` / `get_redoc_html` 的 `__kwdefaults__` 默认参数（调用时读取，无需重写 docs/redoc 路由），进程级生效（同进程所有应用共享）；无可用 logo 时保持 FastAPI 默认图标
+
+---
+
 ## [0.2.1] — 2026-10-12
 
 ### Added
