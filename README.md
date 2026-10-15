@@ -920,10 +920,10 @@ validate_asgi_import('apps.platform:platform_app')
 
 - **`exclude` 支持三种标识** — 模块名（`apps.platform`）、导出名（`platform_app`）或 `module:name` 导入串（`apps.platform:platform_app`）
 - 结果按模块名排序，顺序稳定
-- **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI 应用（Starlette / Flask 等或自定义 ASGI 函数，判定规则见下）均通过
+- **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI3 应用（Starlette / Litestar 等其它 ASGI 框架实例，或自定义三参 ASGI 函数，判定规则见下）均通过；Flask 等 WSGI 框架不适用
 - **factory 模式校验** — `validate_asgi_import('app:create_app', factory=True)` 支持 uvicorn `--factory` 形态：校验工厂可无参调用（对应 `uvicorn.run(..., factory=True)`），只做结构校验、不实际执行工厂，应用保持延迟构建
 
-**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGIApplication` / `ASGI2Application` / `ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`（返回 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动将 `x` 收窄为 ASGI 应用）：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI2（类，scope 单参）或 ASGI3（`scope, receive, send` 三参）结构，`*args` 包装器放行。签名判定为近似，权威判定以 uvicorn 实际启动为准。
+**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`（返回 `TypeGuard[ASGI3Application]`，`if is_asgi_app(x)` 后类型检查器自动将 `x` 收窄为 ASGI 应用）：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI3（`scope, receive, send` 三参）结构，`*args` 包装器放行。**仅支持 ASGI3**——ASGI2 类形态（uvicorn 经 `ASGI2Middleware` 包装可跑，但挂载消费方如 `Starlette.mount` 只接受三参可调用）与单参形态均拒绝；类型定义与 starlette.types 对齐（`MutableMapping`）。签名判定为近似，权威判定以 uvicorn 实际启动为准。
 
 ## 开发与发布
 

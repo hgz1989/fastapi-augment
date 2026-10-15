@@ -4,11 +4,25 @@
 
 ---
 
-## [Latest] — 2026-10-13
+## [0.2.2] — 2026-10-15
 
 ### Changed
 
+- **文档保护支持子应用挂载与 root_path 反向代理** — `DocsAuthMiddleware` 自动发现子应用挂载的文档路径（含嵌套挂载与路径参数场景），按各子应用自身配置独立保护；子应用文档路径带挂载前缀，登录页为 `<前缀路径>/login`，多应用共享同一签名 Cookie 认证；反向代理（`root_path`）场景登录跳转与表单自动携带前缀；登录 `next` 参数严格限定为受保护路径范围，防开放重定向；示例工程补充子应用挂载与 root_path 演示
 - **Docs/ReDoc 标签页图标复用配置的 logo** — `create_app` 解析出的 `docs_logo`（含包内默认 `assets/logo.png`）除注入 ReDoc `info.x-logo` 与登录页外，现在同时作为 `/docs` 与 `/redoc` 的浏览器标签页图标（favicon）；实现为改写 FastAPI 内置 `get_swagger_ui_html` / `get_redoc_html` 的 `__kwdefaults__` 默认参数（调用时读取，无需重写 docs/redoc 路由），进程级生效（同进程所有应用共享）；无可用 logo 时保持 FastAPI 默认图标
+
+### Fixed
+
+- **ASGI 类型与 Starlette 对齐（挂载类型报错修复）** — 实际使用中发现 `ASGIAppSpec.app` 传给 `FastAPI.mount()` 等接收 `ASGIApp` 的接口时类型检查报错，两处根因均已修复：
+  - `common.asgi_types` 的 `Scope` / `ASGIReceiveEvent` / `ASGISendEvent` 由 `dict[str, Any]` 改为 `MutableMapping[str, Any]`（与 `starlette.types` 的 `Scope` / `Message` 一致）——此前参数逆变使 `Callable[[dict, ...], ...]` 无法赋给 Starlette 的 `Callable[[MutableMapping, ...], ...]`
+  - `ASGIAppSpec.app` 字段类型收窄为 `ASGI3Application`——挂载消费方（Starlette.mount）仅支持 ASGI3 形态
+
+### Removed
+
+- **ASGI2 支持（类型与运行时判定）** — 库内全链路仅支持 ASGI3：
+  - 移除 `ASGI2Protocol` / `ASGI2Application` / `ASGIApplication` 类型导出（库内统一使用 `ASGI3Application`）
+  - `is_asgi_app` 运行时判定收紧为只认三参（`scope, receive, send`）形态；ASGI2 类形态与单参形态（`app(scope)` 两层写法）一律返回 False——前者挂载后首个请求即 TypeError，后者 uvicorn 自动判为 asgi3 后传三参调用同样报错
+  - `discover_asgi_apps` / `validate_asgi_import` 对上述形态相应拒绝（此前发现的 ASGI2 应用挂载即炸，属于"假支持"）；`app_discovery` 内部的 `cast` 衔接随之移除，类型自然吻合
 
 ---
 
@@ -27,6 +41,10 @@
 - **`BeijingDatetime` naive 时区兜底** — `serialize_beijing_dt` 对无时区的 datetime 统一按 UTC 解释（与"数据库存储 UTC"约定一致），不再随部署机器本地时区偏移
 - **生命周期注册表误传字符串静默失效修复** — `app.state.registries` 传入 `str`/`bytes` 时显式抛 `TypeError`；此前字符串被当作序列逐字符拆分后过滤为空，用户注册表静默不执行
 - **`from_env` 动态子类缓存封顶** — `_SUBCLASS_CACHE` 达 64 条后停止写入，长期运行 + 频繁不同配置时不再缓慢累积类对象
+
+### Removed
+
+- **`build_response` 底层工厂函数**（补录：随 0.2.1 发布、当时漏记）— 该函数从未由 `schemas` 包导出；`response_success` / `response_fail` 改为直接构造 `APIResponse` 实例，对外推荐入口不受影响
 
 ---
 
@@ -264,7 +282,7 @@
 | `middlewares/` | `RequestIdMiddleware`（ULID 格式），`ContextVar` 全链路传递 |
 | `openapi.py` | OpenAPI schema 自动清理 422 响应与验证错误模型 |
 
-[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.1...develop
+[0.2.2]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.1
 [0.2.0]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.5...v0.1.6
