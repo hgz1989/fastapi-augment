@@ -17,14 +17,24 @@
     Swagger UI   http://127.0.0.1:8000/docs        （配置了账号密码时需先登录）
     健康检查     http://127.0.0.1:8000/health
     业务接口     http://127.0.0.1:8000/hello?name=world
+    子应用接口   http://127.0.0.1:8000/sub/ping
+    子应用文档   http://127.0.0.1:8000/sub/api-docs（按子应用自身配置，同样需登录）
 
 docs 登录（配置了 DEMO_DOCS_ACCOUNTS 时）：
     - 访问 /docs 未登录 -> 跳转 /docs/login，访问 /redoc -> /redoc/login，
       /openapi.json -> /openapi.json/login；登录成功后跳回原路径
+    - 子应用挂载到 /sub 后，文档路径按子应用自身配置自动发现并保护：
+      /sub/api-docs -> /sub/api-docs/login、/sub/redoc、/sub/openapi.json
+      （一份 Cookie 通用于主应用与全部子应用的文档）
     - 账号格式 user1:pass1,user2:pass2，支持多账号
     - 签名密钥 DEMO_DOCS_SECRET 缺失时自动随机生成（重启后需重新登录）
     - logo：DEMO_DOCS_LOGO 配置 URL/路径，或放包内 assets/logo.png 自动生效
       （ReDoc 顶部 + 登录页；Swagger 不支持换 logo）
+
+root_path 反向代理（可选）：
+    配置 DEMO_ROOT_PATH=/gateway 后重启，模拟网关前缀场景：
+    /gateway/docs、/gateway/sub/api-docs 均按各应用配置保护，
+    登录重定向与表单地址自动带 /gateway 前缀
 """
 from __future__ import annotations
 
@@ -71,6 +81,11 @@ class DemoSettings(AugmentBaseSettings):
         description='Docs 页面 logo（URL / data URI / 本地路径）；缺省时尝试包内 assets/logo.png',
         examples=['https://example.com/logo.png'],
     )
+    root_path: str = Field(
+        default='',
+        description='反向代理前缀（ASGI root_path），如 /gateway；配置后模拟网关前缀场景',
+        examples=['/gateway'],
+    )
 
 
 settings = DemoSettings.from_dotenv(
@@ -111,7 +126,29 @@ async def hello(name: str = 'world'):
     return response_success(data={'message': f'Hello, {name}!'})
 
 
+# ── 子应用：挂载后文档保护自动覆盖（按各应用自身配置发现） ────────────────
+# 子应用文档路径按其自身 docs_url / redoc_url / openapi_url 配置自动发现：
+# 挂载到 /sub 后，/sub/api-docs、/sub/redoc、/sub/openapi.json 同样需要登录
+# （登录页 /sub/api-docs/login），一份 Cookie 通用于主应用与全部子应用。
+# 注：挂载子应用的 lifespan 不会被 uvicorn 触发（本示例子应用无生命周期资源）
+sub_app = create_app(
+    title=f'{settings.title} · Sub',
+    summary='挂载子应用示例（自定义文档路径 /api-docs）',
+    version=settings.version,
+    docs_url='/api-docs',
+)
+
+
+@sub_app.get('/ping')
+async def ping():
+    """子应用接口：GET /sub/ping（无需登录）"""
+    return response_success(data={'message': 'pong from sub app'})
+
+
+app.mount('/sub', sub_app)
+
 if __name__ == '__main__':
     import uvicorn
 
+    # DEMO_ROOT_PATH=/gateway 模拟反向代理前缀（root_path）
     uvicorn.run(app, host='127.0.0.1', port=8000)

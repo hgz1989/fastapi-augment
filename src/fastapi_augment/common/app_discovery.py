@@ -20,7 +20,7 @@ from pathlib import Path
 from pkgutil import walk_packages
 from types import ModuleType
 
-from .asgi_types import ASGIApplication, is_asgi_app
+from .asgi_types import ASGI3Application, is_asgi_app
 
 _logger = getLogger(__name__)
 
@@ -32,12 +32,12 @@ class ASGIAppSpec:
     Attributes:
         module: 应用所在模块，如 ``apps.platform``
         name: 在子包 ``__all__`` 中的导出名，如 ``platform_app``
-        app: ASGI 应用实例（不限于 FastAPI）
+        app: ASGI3 应用实例（(scope, receive, send) 可调用，不限于 FastAPI）
     """
 
     module: str
     name: str
-    app: ASGIApplication
+    app: ASGI3Application
 
     @property
     def import_string(self) -> str:
@@ -66,7 +66,7 @@ def _iter_subpackages(root: str) -> Iterator[str]:
     )
 
 
-def _iter_exported_apps(module: ModuleType) -> Iterator[tuple[str, ASGIApplication]]:
+def _iter_exported_apps(module: ModuleType) -> Iterator[tuple[str, ASGI3Application]]:
     """从模块的 __all__ 中筛出可调用的 ASGI 应用
 
     Args:

@@ -114,8 +114,9 @@ class TestValidateAsgiImport:
         monkeypatch.setitem(_sys_modules, 'fake_asgi_mod', module)
         validate_asgi_import('fake_asgi_mod:app')
 
-    def test_asgi3_scope_only_passes(self, monkeypatch: pytest.MonkeyPatch):
-        # ASGI3 两层形态：app(scope) 返回 (receive, send) 处理函数
+    def test_scope_only_single_param_rejected(self, monkeypatch: pytest.MonkeyPatch):
+        # 单参形态（app(scope) 返回处理函数）不被接受：uvicorn 自动判为 asgi3
+        # 后以 (scope, receive, send) 调用会 TypeError，挂载消费方也不支持
         module = ModuleType('fake_asgi3_mod')
 
         async def app(scope):
@@ -126,7 +127,25 @@ class TestValidateAsgiImport:
 
         module.app = app  # type: ignore[attr-defined]
         monkeypatch.setitem(_sys_modules, 'fake_asgi3_mod', module)
-        validate_asgi_import('fake_asgi3_mod:app')
+        with pytest.raises(RuntimeError, match='不是可调用的 ASGI 应用'):
+            validate_asgi_import('fake_asgi3_mod:app')
+
+    def test_asgi2_class_rejected(self, monkeypatch: pytest.MonkeyPatch):
+        # ASGI2 类形态（实例化收 scope，实例以 (receive, send) 调用）不再支持：
+        # 挂载消费方（Starlette mount）仅接受三参可调用，挂载后首个请求即 TypeError
+        module = ModuleType('fake_asgi2_mod')
+
+        class App:
+            def __init__(self, scope):
+                self.scope = scope
+
+            async def __call__(self, receive, send):
+                ...
+
+        module.app = App  # type: ignore[attr-defined]
+        monkeypatch.setitem(_sys_modules, 'fake_asgi2_mod', module)
+        with pytest.raises(RuntimeError, match='不是可调用的 ASGI 应用'):
+            validate_asgi_import('fake_asgi2_mod:app')
 
     def test_non_callable_raises(self, monkeypatch: pytest.MonkeyPatch):
         module = ModuleType('fake_bad_mod')

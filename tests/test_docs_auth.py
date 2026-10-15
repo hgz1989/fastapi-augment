@@ -2,9 +2,11 @@
 @Author         : hangu
 @CreateDate     : 2026/9/30
 @Description    : DocsAuthMiddleware 中间件测试（登录页 + 签名 Cookie）
-                  拦截 /docs /redoc /openapi.json，未登录重定向到对应当前路径的
-                  登录页（<路径>/login?next=<路径>）；登录成功后下发 HMAC-SHA256
-                  签名 Cookie（含过期时间），并跳回 next 目标
+                  拦截 /docs /redoc /openapi.json（按各应用自身的 docs_url /
+                  redoc_url / openapi_url 配置自动发现，含挂载前缀与自定义路径；
+                  root_path 场景自动识别并回补前缀），未登录重定向到对应当前
+                  路径的登录页（<路径>/login?next=<路径>）；登录成功后下发
+                  HMAC-SHA256 签名 Cookie（含过期时间），并跳回 next 目标
 """
 from __future__ import annotations
 
@@ -64,6 +66,32 @@ def _make_token(username: str, secret: str, *, exp: int | None = None) -> str:
     payload_b64 = base64.urlsafe_b64encode(payload).decode('ascii').rstrip('=')
     signature = hmac.new(secret.encode('utf-8'), payload_b64.encode('ascii'), hashlib.sha256).hexdigest()
     return f'{payload_b64}.{signature}'
+
+
+def _make_sub_app(**kwargs: Any) -> Any:
+    """子应用（默认 docs 配置；kwargs 可覆盖 docs_url / redoc_url 等）"""
+    return create_app(title='Sub App', **kwargs)
+
+
+def _make_mounted_app(mount_path: str = '/xxx', sub_app: Any = None) -> Any:
+    """主应用（启用 docs 保护）+ 在 mount_path 挂载未保护子应用"""
+    main = create_app(
+        docs_credentials=[{'username': 'admin', 'password': 'secret'}],
+        docs_auth_secret='test-secret',
+    )
+    sub = sub_app if sub_app is not None else _make_sub_app()
+
+    @sub.get('/hello')
+    async def hello() -> dict[str, bool]:
+        return {'ok': True}
+
+    main.mount(mount_path, sub)
+    return main
+
+
+def _make_mounted_client() -> TestClient:
+    """挂载子应用的 TestClient（无 root_path 前缀）"""
+    return TestClient(_make_mounted_app())
 
 
 # 受保护路径 → 对应登录页
@@ -325,6 +353,190 @@ class TestDocsAuthCustomPaths:
         )
         assert client.get('/docs', follow_redirects=False).status_code == 404
         assert client.get('/openapi.json', follow_redirects=False).status_code == 404
+
+
+# ── 子应用挂载（按各应用配置自动发现文档路径） ───────────────────────────
+
+class TestDocsAuthMountedApps:
+
+    @pytest.mark.parametrize('suffix', ('/docs', '/redoc', '/openapi.json'))
+    def test_mounted_docs_redirects_to_prefixed_login(self, suffix: str):
+        """子应用挂载后 /xxx/docs 一并受保护，重定向到 /xxx/docs/login"""
+        client = _make_mounted_client()
+        resp = client.get(f'/xxx{suffix}', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == f'/xxx{suffix}/login?next=/xxx{suffix}'
+
+    def test_mounted_docs_full_login_flow(self):
+        """挂载子应用文档的完整登录流程：重定向 -> 登录页 -> 登录 -> docs 可访问"""
+        client = _make_mounted_client()
+
+        assert client.get('/xxx/docs', follow_redirects=False).status_code == 303
+
+        page = client.get('/xxx/docs/login?next=/xxx/docs')
+        assert page.status_code == 200
+        assert 'action="/xxx/docs/login"' in page.text
+        assert 'value="/xxx/docs"' in page.text
+
+        login = _login(
+            client, 'admin', 'secret',
+            login_path='/xxx/docs/login', next_target='/xxx/docs',
+        )
+        assert login.status_code == 303
+        assert login.headers.get('location') == '/xxx/docs'
+
+        assert client.get('/xxx/docs').status_code == 200
+        assert client.get('/xxx/openapi.json').status_code == 200
+
+    def test_custom_docs_config_protected_per_app(self):
+        """子应用按其自身 docs_url/redoc_url/openapi_url 配置受保护（非默认尾部）"""
+        sub = _make_sub_app(docs_url='/api-docs', redoc_url=None, openapi_url='/schema.json')
+        client = TestClient(_make_mounted_app(sub_app=sub))
+
+        resp = client.get('/xxx/api-docs', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/xxx/api-docs/login?next=/xxx/api-docs'
+        assert client.get('/xxx/schema.json', follow_redirects=False).status_code == 303
+        # 未启用的 redoc 与未配置的默认尾部均不拦截（无路由 -> 404）
+        assert client.get('/xxx/redoc', follow_redirects=False).status_code == 404
+        assert client.get('/xxx/docs', follow_redirects=False).status_code == 404
+
+        login = _login(
+            client, 'admin', 'secret',
+            login_path='/xxx/api-docs/login', next_target='/xxx/api-docs',
+        )
+        assert login.status_code == 303
+        assert login.headers.get('location') == '/xxx/api-docs'
+        assert client.get('/xxx/api-docs').status_code == 200
+
+    def test_nested_mount_discovered(self):
+        """嵌套挂载（/outer/inner）的文档路径也按各自配置发现并保护"""
+        outer = _make_sub_app()
+        outer.mount('/inner', _make_sub_app())
+        client = TestClient(_make_mounted_app(mount_path='/outer', sub_app=outer))
+
+        resp = client.get('/outer/inner/docs', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/outer/inner/docs/login?next=/outer/inner/docs'
+
+    def test_param_mount_discovered(self):
+        """带路径参数的挂载（/tenants/{tenant_id}）按单段通配发现并保护"""
+        client = TestClient(_make_mounted_app(mount_path='/tenants/{tenant_id}'))
+
+        resp = client.get('/tenants/42/docs', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/tenants/42/docs/login?next=/tenants/42/docs'
+
+        login = _login(
+            client, 'admin', 'secret',
+            login_path='/tenants/42/docs/login', next_target='/tenants/42/docs',
+        )
+        assert login.status_code == 303
+        assert login.headers.get('location') == '/tenants/42/docs'
+        assert client.get('/tenants/42/docs').status_code == 200
+
+    def test_valid_cookie_grants_mounted_docs(self):
+        """携带有效签名 Cookie 直接访问挂载子应用 docs，不再拦截"""
+        client = _make_mounted_client()
+        token = _make_token('admin', 'test-secret')
+        resp = client.get(
+            '/xxx/docs',
+            headers={'cookie': f'docs_auth={token}'},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 200
+
+    def test_mounted_non_docs_path_unaffected(self):
+        """子应用的非文档路径不受保护中间件影响"""
+        client = _make_mounted_client()
+        resp = client.get('/xxx/hello')
+        assert resp.status_code == 200
+        assert resp.json() == {'ok': True}
+
+    def test_main_docs_still_protected_with_mount(self):
+        """挂载子应用后主应用 /docs 保护逻辑不变（回归）"""
+        client = _make_mounted_client()
+        resp = client.get('/docs', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/docs/login?next=/docs'
+
+    def test_trailing_slash_normalized(self):
+        """带尾斜杠的挂载 docs 路径（/xxx/docs/）同样受保护且归一化跳转"""
+        client = _make_mounted_client()
+        resp = client.get('/xxx/docs/', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/xxx/docs/login?next=/xxx/docs'
+
+
+# ── root_path（反向代理前缀） ────────────────────────────────────────────
+
+class TestDocsAuthRootPath:
+
+    def test_stripped_prefix_proxy_redirects_with_root_path(self):
+        """代理剥离前缀：path=/xxx/docs 不含 root_path，重定向 Location 带 /gateway 前缀"""
+        client = TestClient(_make_mounted_app(), root_path='/gateway')
+        resp = client.get('/xxx/docs', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/gateway/xxx/docs/login?next=/xxx/docs'
+
+    def test_unstripped_prefix_proxy_still_protected(self):
+        """代理未剥离前缀：path=/gateway/xxx/docs 含 root_path，仍能识别并保护"""
+        client = TestClient(_make_mounted_app(), root_path='/gateway')
+        resp = client.get('/gateway/xxx/docs', follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/gateway/xxx/docs/login?next=/xxx/docs'
+
+    def test_root_path_login_flow(self):
+        """root_path 下完整登录流程：表单 action 带前缀，next 归一为路由路径，登录后跳回带前缀目标"""
+        client = TestClient(_make_mounted_app(), root_path='/gateway')
+
+        page = client.get('/gateway/docs/login?next=/gateway/xxx/docs')
+        assert page.status_code == 200
+        assert 'action="/gateway/docs/login"' in page.text
+        assert 'value="/xxx/docs"' in page.text
+
+        login = client.post(
+            '/gateway/docs/login',
+            data={'username': 'admin', 'password': 'secret', 'next': '/xxx/docs'},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303
+        assert login.headers.get('location') == '/gateway/xxx/docs'
+        assert 'docs_auth=' in login.headers.get('set-cookie', '')
+
+        assert client.get('/gateway/xxx/docs').status_code == 200
+
+
+# ── 路径匹配边界与 next 防开放重定向 ─────────────────────────────────────
+
+class TestDocsAuthPathMatchingBounds:
+
+    @pytest.mark.parametrize('path', ('/mydocs', '/xxx/mydocs', '/v1/docs', '/v1/docs-list'))
+    def test_unconfigured_path_not_protected(self, path: str):
+        """只拦截按配置发现/显式配置的文档路径：同尾但未配置（如 /v1/docs）不拦截"""
+        client = _make_mounted_client()
+        resp = client.get(path, follow_redirects=False)
+        assert resp.status_code != 303
+
+    def test_protocol_relative_next_rejected(self):
+        """next=//evil.com/docs 为协议相对地址，回退 /docs（防开放重定向）"""
+        client = _make_mounted_client()
+        resp = _login(
+            client, 'admin', 'secret',
+            login_path='/xxx/docs/login', next_target='//evil.com/docs',
+        )
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/docs'
+
+    def test_next_non_protected_mounted_path_rejected(self):
+        """next 指向非受保护路径（/xxx/other）时回退 /docs"""
+        client = _make_mounted_client()
+        resp = _login(
+            client, 'admin', 'secret',
+            login_path='/xxx/docs/login', next_target='/xxx/other',
+        )
+        assert resp.status_code == 303
+        assert resp.headers.get('location') == '/docs'
 
 
 # ── Cookie 安全 ──────────────────────────────────────────────────────────

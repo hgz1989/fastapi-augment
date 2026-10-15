@@ -14,10 +14,7 @@ from .asgi_types import (
     ASGISendEvent,
     ASGIReceiveCallable,
     ASGISendCallable,
-    ASGI2Protocol,
-    ASGI2Application,
     ASGI3Application,
-    ASGIApplication,
     is_asgi_app
 )
 from .constants import DEFAULT_ERR_MSG
@@ -59,10 +56,7 @@ __all__ = [
     'ASGIReceiveEvent',
     'ASGIReceiveCallable',
     'ASGISendCallable',
-    'ASGI2Protocol',
-    'ASGI2Application',
     'ASGI3Application',
-    'ASGIApplication',
     'is_asgi_app',
     # constants
     'DEFAULT_ERR_MSG',

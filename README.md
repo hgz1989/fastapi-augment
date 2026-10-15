@@ -867,6 +867,13 @@ app = create_app(
   就重定向到哪个路径的登录页
 - **自定义路径** — `docs_url` / `redoc_url` / `openapi_url` 传入自定义值时，保护范围
   自动跟随；全部禁用（传 `None`）时不挂中间件
+- **子应用挂载** — 受保护路径按**各应用自身的 `docs_url` / `redoc_url` / `openapi_url`
+  配置自动发现**（首个请求时递归收集、带挂载前缀；子应用用自定义路径如
+  `/api-docs` 也一并受保护，之后新增挂载需重启生效），登录页为 `<路径>/login`，
+  一份 Cookie 通用于主应用与全部子应用的文档
+- **root_path 反向代理** — 主应用挂在 `/gateway` 前缀下（`root_path='/gateway'`）时，
+  无论反向代理是否剥离前缀（`/gateway/xxx/docs` 或 `/xxx/docs` + root_path），
+  均能正确识别并保护；登录重定向与表单地址自动带 `root_path` 前缀
 - **安全细节** — 密码比较使用恒定时间算法（`hmac.compare_digest`）；Cookie 默认
   `HttpOnly` + `SameSite=Lax`，可配置 `Secure`；`next` 仅允许受保护路径，防开放重定向
 - 也可手动挂载：`app.add_middleware(DocsAuthMiddleware, credentials=..., secret=...)`，
@@ -886,8 +893,10 @@ app = create_app(
 
 - **ReDoc** — 通过 OpenAPI `info.x-logo` 扩展注入（ReDoc 原生支持），顶部显示 logo
 - **登录页** — logo 以 data URI 内联显示在登录表单上方
-- **Swagger UI** — 不支持更换 logo（FastAPI 无对应参数，且不自建 docs 路由），保持默认
-- 显式传入的 `docs_logo` 优先于 `assets/logo.png`；两者均无时不注入 logo
+- **标签页图标** — `/docs` 与 `/redoc` 的浏览器标签页图标（favicon）同样使用该
+  logo；实现为改写 FastAPI 内置 `get_swagger_ui_html` / `get_redoc_html` 的
+  `__kwdefaults__` 默认参数（调用时读取，无需重写 docs/redoc 路由），进程级
+  生效（同进程所有应用共享）
 
 ### 应用发现 — `common.app_discovery`
 
@@ -911,10 +920,10 @@ validate_asgi_import('apps.platform:platform_app')
 
 - **`exclude` 支持三种标识** — 模块名（`apps.platform`）、导出名（`platform_app`）或 `module:name` 导入串（`apps.platform:platform_app`）
 - 结果按模块名排序，顺序稳定
-- **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI 应用（Starlette / Flask 等或自定义 ASGI 函数，判定规则见下）均通过
+- **`validate_asgi_import` 不限于 FastAPI** — 只要是可调用的 ASGI3 应用（Starlette / Litestar 等其它 ASGI 框架实例，或自定义三参 ASGI 函数，判定规则见下）均通过；Flask 等 WSGI 框架不适用
 - **factory 模式校验** — `validate_asgi_import('app:create_app', factory=True)` 支持 uvicorn `--factory` 形态：校验工厂可无参调用（对应 `uvicorn.run(..., factory=True)`），只做结构校验、不实际执行工厂，应用保持延迟构建
 
-**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGIApplication` / `ASGI2Application` / `ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`（返回 `TypeGuard[ASGIApplication]`，`if is_asgi_app(x)` 后类型检查器自动将 `x` 收窄为 ASGI 应用）：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI2（类，scope 单参）或 ASGI3（`scope, receive, send` 三参）结构，`*args` 包装器放行。签名判定为近似，权威判定以 uvicorn 实际启动为准。
+**ASGI 类型与校验** — `common.asgi_types` 提供遵循 ASGI 规范的类型定义（`ASGI3Application` / `Scope` 等）与运行时近似判定 `is_asgi_app()`（返回 `TypeGuard[ASGI3Application]`，`if is_asgi_app(x)` 后类型检查器自动将 `x` 收窄为 ASGI 应用）：callable 为硬门槛（与 uvicorn `Config.load` 一致），签名可解析时进一步检查 ASGI3（`scope, receive, send` 三参）结构，`*args` 包装器放行。**仅支持 ASGI3**——ASGI2 类形态（uvicorn 经 `ASGI2Middleware` 包装可跑，但挂载消费方如 `Starlette.mount` 只接受三参可调用）与单参形态均拒绝；类型定义与 starlette.types 对齐（`MutableMapping`）。签名判定为近似，权威判定以 uvicorn 实际启动为准。
 
 ## 开发与发布
 
