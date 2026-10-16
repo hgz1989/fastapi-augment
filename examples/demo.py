@@ -17,6 +17,7 @@
     Swagger UI   http://127.0.0.1:8000/docs        （配置了账号密码时需先登录）
     健康检查     http://127.0.0.1:8000/health
     业务接口     http://127.0.0.1:8000/hello?name=world
+    Webhook      /docs 的 Webhooks 分组 / /redoc 顶部徽标（仅文档声明，无对应路由）
     子应用接口   http://127.0.0.1:8000/sub/ping
     子应用文档   http://127.0.0.1:8000/sub/api-docs（按子应用自身配置，同样需登录）
 
@@ -40,6 +41,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi import APIRouter
 from pydantic import Field
 
 from fastapi_augment import create_app
@@ -124,6 +126,22 @@ app = create_app(
 async def hello(name: str = 'world'):
     """基础接口，返回统一响应：{"code": 0, "message": "操作成功", "data": {...}, ...}"""
     return response_success(data={'message': f'Hello, {name}!'})
+
+
+# ── Webhook 声明：独立 router 经 include_router 汇入主应用 app.webhooks ────
+# 仅声明事件推送的载荷结构，不产生可调用路由；Swagger UI "Webhooks" 分组、
+# ReDoc 顶部 "Webhook" 徽标可见（必须挂到主应用 webhooks，注册在子应用
+# 或普通 APIRouter 上不生效；webhook 较多时可按事件域拆多个 router 再汇入）
+webhooks_router = APIRouter(tags=['webhooks'])
+
+
+@webhooks_router.post('/item-created')
+async def item_created_webhook(item_id: int, name: str):
+    """新资源创建后推送给订阅方的 webhook 载荷（仅文档声明）"""
+    pass
+
+
+app.webhooks.include_router(webhooks_router)
 
 
 # ── 子应用：挂载后文档保护自动覆盖（按各应用自身配置发现） ────────────────

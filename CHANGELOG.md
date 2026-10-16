@@ -4,6 +4,18 @@
 
 ---
 
+## [Latest] — 2026-10-16
+
+### Changed
+
+- **示例工程补充 webhook 声明演示** — `examples/demo.py` 以独立 `APIRouter` 声明 `/item-created` webhook，经 `app.webhooks.include_router()` 汇入，演示 Swagger UI "Webhooks" 分组 / ReDoc "Webhook" 徽标的文档呈现（仅声明载荷结构，无对应路由）
+
+### Fixed
+
+- **OpenAPI callback 声明内嵌操作的 422 响应清理遗漏** — `configure_openapi_schema` 的 422 清理此前只覆盖 `paths` / `webhooks` 顶层操作，FastAPI `callbacks=[...]` 声明的回调操作（`operation.callbacks → 回调路径 → 内嵌操作`）漏网；更糟的是其 422 响应引用已被移除的 `HTTPValidationError` 组件，产生悬空 `$ref`；现按相同规则递归清理回调内嵌操作（`remove_422=False` 时保持原样）
+
+---
+
 ## [0.2.2] — 2026-10-15
 
 ### Changed
@@ -282,6 +294,7 @@
 | `middlewares/` | `RequestIdMiddleware`（ULID 格式），`ContextVar` 全链路传递 |
 | `openapi.py` | OpenAPI schema 自动清理 422 响应与验证错误模型 |
 
+[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.2...develop
 [0.2.2]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.1
 [0.2.0]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.0
