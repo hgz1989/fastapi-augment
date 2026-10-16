@@ -4,7 +4,7 @@
 
 ---
 
-## [Latest] — 2026-10-16
+## [0.2.3] — 2026-10-16
 
 ### Changed
 
@@ -294,7 +294,7 @@
 | `middlewares/` | `RequestIdMiddleware`（ULID 格式），`ContextVar` 全链路传递 |
 | `openapi.py` | OpenAPI schema 自动清理 422 响应与验证错误模型 |
 
-[Latest]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.2...develop
+[0.2.3]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/hgz1989/fastapi-augment/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.1
 [0.2.0]: https://github.com/hgz1989/fastapi-augment/compare/v0.1.6...v0.2.0
