@@ -1,7 +1,7 @@
 """
 openapi 模块测试 — OpenAPICustomConfig / configure_openapi_schema
 """
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
 from fastapi_augment.openapi import (
     OpenAPICustomConfig,
@@ -16,6 +16,24 @@ def _make_app_with_route(config: OpenAPICustomConfig | None = None) -> FastAPI:
     @app.get('/hello')
     async def hello(name: str = 'world'):
         return {'message': f'hello {name}'}
+
+    configure_openapi_schema(app, config=config)
+    return app
+
+
+def _make_app_with_callback(config: OpenAPICustomConfig | None = None) -> FastAPI:
+    """创建带 OpenAPI callback 声明的应用并配置 OpenAPI"""
+    callback_router = APIRouter()
+
+    @callback_router.post('/callback/{item_id}')
+    async def notify_callback(item_id: int, q: str = 'x'):
+        pass
+
+    app = FastAPI(title='TestApp', version='1.0.0')
+
+    @app.post('/items', callbacks=callback_router.routes)
+    async def create_item(name: str):
+        return {'name': name}
 
     configure_openapi_schema(app, config=config)
     return app
@@ -59,6 +77,34 @@ class TestConfigureOpenapiSchema:
         # /hello 有 query 参数，应产生 422 响应
         hello_get = schema['paths']['/hello']['get']
         assert '422' in hello_get['responses']
+
+    def test_remove_422_responses_in_callbacks(self):
+        """callback 声明内嵌操作的 422 响应一并移除"""
+        app = _make_app_with_callback(OpenAPICustomConfig(remove_422=True))
+        schema = app.openapi()
+        assert schema is not None
+        callbacks = schema['paths']['/items']['post']['callbacks']
+        # 主操作与全部内嵌回调操作均不应残留 422
+        assert '422' not in schema['paths']['/items']['post']['responses']
+        for callback_paths in callbacks.values():
+            for path_item in callback_paths.values():
+                for method_obj in path_item.values():
+                    assert '422' not in method_obj['responses']
+
+    def test_keep_422_responses_in_callbacks(self):
+        """remove_422=False 时 callback 内嵌操作保留 422 响应"""
+        app = _make_app_with_callback(OpenAPICustomConfig(remove_422=False))
+        schema = app.openapi()
+        assert schema is not None
+        callbacks = schema['paths']['/items']['post']['callbacks']
+        callback_422 = [
+            '422'
+            for callback_paths in callbacks.values()
+            for path_item in callback_paths.values()
+            for method_obj in path_item.values()
+            if '422' in method_obj['responses']
+        ]
+        assert callback_422, '回调操作带参数，应产生 422 响应'
 
     def test_remove_validation_error_schema(self):
         app = _make_app_with_route(OpenAPICustomConfig(

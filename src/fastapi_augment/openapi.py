@@ -13,6 +13,29 @@ from pydantic import ValidationError
 
 _logger = getLogger(__name__)
 
+# http method: get/post/put/delete/patch/options/head/trace
+_HTTP_METHODS = ('get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace')
+
+
+def _remove_422_from_path_item(path_item: dict[str, Any]) -> None:
+    """移除单个 path item 内全部操作的 422 响应（含回调声明内嵌的操作）"""
+    for http_method in _HTTP_METHODS:
+        method_obj = path_item.get(http_method)
+        if not isinstance(method_obj, dict):
+            continue
+        responses = method_obj.get('responses', {})
+        responses.pop('422', None)
+        # FastAPI callbacks 段：{回调名: {回调路径: path_item}}，path item 结构递归一致
+        callbacks = method_obj.get('callbacks')
+        if not isinstance(callbacks, dict):
+            continue
+        for callback_paths in callbacks.values():
+            if not isinstance(callback_paths, dict):
+                continue
+            for callback_path_item in callback_paths.values():
+                if isinstance(callback_path_item, dict):
+                    _remove_422_from_path_item(callback_path_item)
+
 
 @dataclass(slots=True)
 class OpenAPICustomConfig:
@@ -65,6 +88,9 @@ def configure_openapi_schema(
             # separate_input_output_schemas 0.95+才存在
             if hasattr(app, 'separate_input_output_schemas'):
                 kwargs['separate_input_output_schemas'] = app.separate_input_output_schemas
+            # webhooks 段：fastapi 0.99+才存在
+            if hasattr(app, 'webhooks'):
+                kwargs['webhooks'] = app.webhooks.routes
 
             openapi_schema = get_openapi(**kwargs)
         except (ValidationError, TypeError, RuntimeError):
@@ -85,17 +111,11 @@ def configure_openapi_schema(
             schemas.pop('ValidationError', None)
             schemas.pop('HTTPValidationError', None)
 
-        # 移除全部接口422响应
+        # 移除全部接口422响应（paths 与 webhooks 段结构相同，一并处理）
         if cfg.remove_422:
-            paths = openapi_schema.get('paths', {})
-            for path_item in paths.values():
-                # http method: get/post/put/delete/patch/options/head/trace
-                for http_method in ('get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace'):
-                    method_obj = path_item.get(http_method)
-                    if not isinstance(method_obj, dict):
-                        continue
-                    responses = method_obj.get('responses', {})
-                    responses.pop('422', None)
+            for section in (openapi_schema.get('paths', {}), openapi_schema.get('webhooks', {})):
+                for path_item in section.values():
+                    _remove_422_from_path_item(path_item)
 
         app.openapi_schema = openapi_schema
         return app.openapi_schema
