@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
 from itertools import cycle
 from typing import Any
 
@@ -16,106 +15,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine
 )
 
-
-# ── Configuration Models ─────────────────────────────────────────────────────
-
-
-@dataclass
-class NodeConfig:
-    """Single database node configuration.
-
-    Args:
-        url: Async SQLAlchemy connection URL, e.g. ``postgresql+asyncpg://user:pass@host/db``.
-        pool_enabled: Enable connection pooling (False = NullPool, one fresh
-            connection per checkout; SQLite nodes always ignore pool params).
-        pool_size: Connection pool size (0 = unlimited).
-        max_overflow: Max connections allowed beyond *pool_size*.
-        pool_timeout: Seconds to wait for a connection from the pool.
-        pool_recycle: Recycle connections after N seconds (-1 = disable).
-        pool_pre_ping: Emit a test statement on checkout to verify liveness.
-        echo: Log all SQL statements.
-        connect_args: Extra arguments passed to the DBAPI ``connect()``.
-    """
-
-    url: str
-    pool_enabled: bool = True
-    pool_size: int = 5
-    max_overflow: int = 10
-    pool_timeout: float = 30.0
-    pool_recycle: int = 3600
-    pool_pre_ping: bool = True
-    echo: bool = False
-    connect_args: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.url:
-            raise ValueError('url must not be empty')
-        if self.pool_size < 0:
-            raise ValueError(f'pool_size must be >= 0, got {self.pool_size}')
-        if self.max_overflow < 0:
-            raise ValueError(f'max_overflow must be >= 0, got {self.max_overflow}')
-        if self.pool_timeout < 0:
-            raise ValueError(f'pool_timeout must be >= 0, got {self.pool_timeout}')
-        if self.pool_recycle < -1:
-            raise ValueError(f'pool_recycle must be >= -1, got {self.pool_recycle}')
-
-
-@dataclass
-class ClusterTopology:
-    """
-    Database cluster topology.
-
-    Supports three deployment patterns::
-
-        Single        : only ``primary`` is set
-        Master-Replica: ``primary`` + ``replicas``
-        Cluster       : ``primary`` + ``replicas`` + ``readonly``
-
-    Read routing priority: replicas -> readonly -> primary (fallback).
-    """
-
-    primary: NodeConfig
-    replicas: list[NodeConfig] = field(default_factory=list)
-    readonly: list[NodeConfig] = field(default_factory=list)
-
-    @property
-    def is_single(self) -> bool:
-        """Indicates whether the topology consists of a single primary node (no replicas or readonly nodes).
-
-        Returns:
-            True if the topology is single, False otherwise.
-        """
-        return not self.replicas and not self.readonly
-
-    @property
-    def is_master_replica(self) -> bool:
-        """Indicates whether the topology consists of a single primary node and one or more replicas (no readonly nodes).
-
-        Returns:
-            True if the topology is master-replica, False otherwise.
-        """
-        return bool(self.replicas) and not self.readonly
-
-    @property
-    def is_cluster(self) -> bool:
-        """Indicates whether the topology has one or more replicas and/or readonly nodes (covers master-replica and readonly-only setups).
-
-        Returns:
-            True if at least one replica or readonly node is configured, False otherwise.
-        """
-        return bool(self.replicas) or bool(self.readonly)
-
-    def get_all_read_sources(self) -> list[NodeConfig]:
-        """Return all nodes eligible for read traffic (replicas first, then readonly).
-
-        Returns:
-            A list of node configurations.
-        """
-        return [*self.replicas, *self.readonly]
+from .config import ClusterTopology, NodeConfig
 
 
 # ── Engine Manager ───────────────────────────────────────────────────────────
-
 
 class EngineManager:
     """

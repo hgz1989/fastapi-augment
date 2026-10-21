@@ -101,13 +101,13 @@ def create_app(
         # OpenAPI 自定义参数新增
         openapi_remove_422: bool = True,
         openapi_remove_validation_error: bool = True,
-        # Docs 文档保护：登录页 + 签名 Cookie（配置后 /docs /redoc /openapi.json 需登录）
-        # 格式 [{"username": "admin", "password": "xxx"}, ...]，None 不保护
-        docs_credentials: list[dict[str, str]] | None = None,
         # Docs 保护签名密钥（HMAC-SHA256）：显式传入优先，否则回退环境变量
         # DOCS_AUTH_SECRET，再否则随机生成并经临时文件在同机多进程间共享
         # （多主机部署需配置 DOCS_AUTH_SECRET，否则跨机 Cookie 失效）
         docs_auth_secret: str | None = None,
+        # Docs 文档保护：登录页 + 签名 Cookie（配置后 /docs /redoc /openapi.json 需登录）
+        # 格式 [{"username": "admin", "password": "xxx"}, ...]，None 不保护
+        docs_credentials: list[dict[str, str]] | None = None,
         # Docs logo：URL / data URI / 本地路径均可；None 时尝试包内 assets/logo.png
         # （存在则自动注入 ReDoc info.x-logo、登录页与 /docs /redoc 标签页图标；
         # Swagger 页面内不支持换 logo）
@@ -184,17 +184,17 @@ def create_app(
         route_registrars: 路由注册回调列表，接收 app 参数
         openapi_remove_422: 是否移除 422 验证错误响应
         openapi_remove_validation_error: 是否移除验证错误参数
+        docs_auth_secret: Docs 登录 Cookie 签名密钥（HMAC-SHA256）。显式传入
+            优先，否则回退环境变量 DOCS_AUTH_SECRET，再否则随机生成并通过
+            临时文件在同机多进程间共享（uvicorn/gunicorn 多 worker 部署下
+            各进程共享同一密钥；多主机部署无法跨机共享，需配置该环境变量）；
+            生产环境建议配置随机长密钥
         docs_credentials: Docs 文档访问保护（登录页 + 签名 Cookie），格式
             [{"username": "admin", "password": "xxx"}, ...]，支持多账号；配置后
             /docs /redoc /openapi.json 未登录会重定向到对应当前路径的登录页
             （如 /docs/login?next=/docs）；None 时回退读取环境变量：
             DOCS_CREDENTIALS（多账号，格式 user1:pass1,user2:pass2）优先，
             否则 DOCS_USERNAME / DOCS_PASSWORD（单账号，兼容），均未设置则不保护
-        docs_auth_secret: Docs 登录 Cookie 签名密钥（HMAC-SHA256）。显式传入
-            优先，否则回退环境变量 DOCS_AUTH_SECRET，再否则随机生成并通过
-            临时文件在同机多进程间共享（uvicorn/gunicorn 多 worker 部署下
-            各进程共享同一密钥；多主机部署无法跨机共享，需配置该环境变量）；
-            生产环境建议配置随机长密钥
         docs_logo: Docs 页面 logo。支持 URL（``http(s)://``）、``data:`` URI 或
             本地文件路径（自动转为 data URI 内联）；None 时尝试包内
             ``fastapi_augment/assets/logo.png``（存在则生效）。注入位置：

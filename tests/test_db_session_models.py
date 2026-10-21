@@ -10,11 +10,8 @@ from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from fastapi_augment.db.sqlalchemy.engine import (
-    ClusterTopology,
-    NodeConfig,
-    EngineManager
-)
+from fastapi_augment.db.sqlalchemy.config import ClusterTopology, NodeConfig
+from fastapi_augment.db.sqlalchemy.engine import EngineManager
 from fastapi_augment.db.sqlalchemy.mixins.audit import (
     CreatedByMixin,
     UpdatedByMixin,

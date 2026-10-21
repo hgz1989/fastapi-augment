@@ -4,6 +4,16 @@
 
 ---
 
+## [0.2.4] — 2026-10-21
+
+### Changed
+
+- **数据库配置模块统一（`settings.py` → `config.py`）** — `db/sqlalchemy/settings.py` 重命名为 `config.py`，`NodeConfig` / `ClusterTopology` 自 `engine.py` 迁入并与 `DatabaseConfig` 同居一个配置模块；`engine.py` 仅保留 `EngineManager` 引擎生命周期管理，模块依赖收敛为 `engine → config` 单向
+- **`NodeConfig` / `ClusterTopology` 改为 pydantic BaseModel** — 声明式校验（`Field(ge=0)` 等）替代手写 `__post_init__`，并启用 `validate_assignment`（构造后赋非法值同样拦截，此前 dataclass 只拦构造时）；pydantic `ValidationError` 继承 `ValueError`，既有异常捕获语义不变，空 `url` 的校验错误消息文本随之调整
+- **`DatabaseSettings` 重命名为 `DatabaseConfig`** — 嵌套数据库配置类随 `config.py` 模块命名对齐；`tests/test_database_settings.py` 同步重命名为 `tests/test_database_config.py`
+
+---
+
 ## [0.2.3] — 2026-10-16
 
 ### Changed

@@ -1,7 +1,7 @@
 """
 @Author         : hangu
 @CreateDate     : 2026/9/12
-@Description    : 数据库配置——独立的嵌套 BaseModel，支持多数据库、自动推导驱动/端口
+@Description    : 数据库配置——嵌套 BaseModel 与节点/拓扑配置模型，支持多数据库、自动推导驱动/端口
 """
 from __future__ import annotations
 
@@ -18,10 +18,96 @@ from pydantic import (
 )
 from sqlalchemy import URL
 
-from .engine import NodeConfig
+
+# ── Node / Topology Configuration Models ────────────────────────────────────
 
 
-class DatabaseSettings(BaseModel):
+class NodeConfig(BaseModel):
+    """Single database node configuration.
+
+    Args:
+        url: Async SQLAlchemy connection URL, e.g. ``postgresql+asyncpg://user:pass@host/db``.
+        pool_enabled: Enable connection pooling (False = NullPool, one fresh
+            connection per checkout; SQLite nodes always ignore pool params).
+        pool_size: Connection pool size (0 = unlimited).
+        max_overflow: Max connections allowed beyond *pool_size*.
+        pool_timeout: Seconds to wait for a connection from the pool.
+        pool_recycle: Recycle connections after N seconds (-1 = disable).
+        pool_pre_ping: Emit a test statement on checkout to verify liveness.
+        echo: Log all SQL statements.
+        connect_args: Extra arguments passed to the DBAPI ``connect()``.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    url: str = Field(min_length=1)
+    pool_enabled: bool = True
+    pool_size: int = Field(default=5, ge=0)
+    max_overflow: int = Field(default=10, ge=0)
+    pool_timeout: int | float = Field(default=30.0, ge=0)
+    pool_recycle: int = Field(default=3600, ge=-1)
+    pool_pre_ping: bool = True
+    echo: bool = False
+    connect_args: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClusterTopology(BaseModel):
+    """
+    Database cluster topology.
+
+    Supports three deployment patterns::
+
+        Single        : only ``primary`` is set
+        Master-Replica: ``primary`` + ``replicas``
+        Cluster       : ``primary`` + ``replicas`` + ``readonly``
+
+    Read routing priority: replicas -> readonly -> primary (fallback).
+    """
+
+    primary: NodeConfig
+    replicas: list[NodeConfig] = Field(default_factory=list)
+    readonly: list[NodeConfig] = Field(default_factory=list)
+
+    @property
+    def is_single(self) -> bool:
+        """Indicates whether the topology consists of a single primary node (no replicas or readonly nodes).
+
+        Returns:
+            True if the topology is single, False otherwise.
+        """
+        return not self.replicas and not self.readonly
+
+    @property
+    def is_master_replica(self) -> bool:
+        """Indicates whether the topology consists of a single primary node and one or more replicas (no readonly nodes).
+
+        Returns:
+            True if the topology is master-replica, False otherwise.
+        """
+        return bool(self.replicas) and not self.readonly
+
+    @property
+    def is_cluster(self) -> bool:
+        """Indicates whether the topology has one or more replicas and/or readonly nodes (covers master-replica and readonly-only setups).
+
+        Returns:
+            True if at least one replica or readonly node is configured, False otherwise.
+        """
+        return bool(self.replicas) or bool(self.readonly)
+
+    def get_all_read_sources(self) -> list[NodeConfig]:
+        """Return all nodes eligible for read traffic (replicas first, then readonly).
+
+        Returns:
+            A list of node configurations.
+        """
+        return [*self.replicas, *self.readonly]
+
+
+# ── Nested Database Settings ────────────────────────────────────────────────
+
+
+class DatabaseConfig(BaseModel):
     """数据库配置（嵌套配置对象）
 
     .. note::
@@ -34,7 +120,10 @@ class DatabaseSettings(BaseModel):
         .. code-block:: python
 
             class Settings(AugmentBaseSettings):
-                database: DatabaseSettings = DatabaseSettings(engine='sqlite', name='app.db')
+                database: DatabaseConfig = Field(
+                    default_factory=DatabaseConfig,
+                    description='数据库配置'
+                )
 
         .env 中写 ``IAM_DATABASE__HOST=192.168.1.100`` 即可覆盖 host
         .env 中写 ``IAM_DATABASE__ENGINE=mysql`` 即自动切换驱动和端口
@@ -100,17 +189,17 @@ class DatabaseSettings(BaseModel):
     engine: str = Field(
         default='<engine>',
         description='数据库引擎类型，决定驱动与默认端口',
-        examples=['postgresql', 'mysql', 'sqlite', 'dm'],
+        examples=['postgresql', 'mysql', 'sqlite', 'dm']
     )
     host: str = Field(
         default='<host>',
         description='数据库主机地址；SQLite 无需填写',
-        examples=['localhost', '192.168.1.100'],
+        examples=['localhost', '192.168.1.100']
     )
     port: int = Field(
         default=0,
         description='数据库端口；0 表示按 engine 自动推导',
-        examples=[5432, 3306],
+        examples=[5432, 3306]
     )
     user: str = Field(
         default='<user>',
@@ -120,7 +209,7 @@ class DatabaseSettings(BaseModel):
     password: str = Field(
         default='<password>',
         description='数据库密码；SQLite 无需填写',
-        examples=['secret'],
+        examples=['secret']
     )
     name: str = Field(
         default='<name>',
@@ -130,56 +219,56 @@ class DatabaseSettings(BaseModel):
     file_path: str = Field(
         default='',
         description='SQLite 专用文件路径；为空时回退到 name',
-        examples=['data/app.db'],
+        examples=['data/app.db']
     )
     application_name: str = Field(
         default='',
         description='连接标识，便于 DBA 在 pg_stat_activity 等视图中定位来源',
-        examples=['my-service'],
+        examples=['my-service']
     )
 
     # 连接池
     pool_enabled: bool = Field(
         default=True,
         description='是否启用 SQLAlchemy 连接池',
-        examples=[True],
+        examples=[True]
     )
     pool_size: int = Field(
         default=10,
         description='连接池常驻连接数',
-        examples=[10, 20],
+        examples=[10, 20]
     )
     max_overflow: int = Field(
         default=20,
         description='连接池最大溢出连接数（超过常驻后的临时连接上限）',
-        examples=[20, 50],
+        examples=[20, 50]
     )
     pool_pre_ping: bool = Field(
         default=True,
         description='每次取连接前是否探测存活，避免获取失效连接',
-        examples=[True],
+        examples=[True]
     )
     pool_recycle: int = Field(
         default=3600,
         description='连接回收周期（秒），防止数据库端超时断连',
-        examples=[3600, 1800],
+        examples=[3600, 1800]
     )
     pool_timeout: int = Field(
         default=30,
         description='连接池取连接的等待超时（秒）',
-        examples=[30, 60],
+        examples=[30, 60]
     )
 
     # 超时
     connect_timeout: int = Field(
         default=10,
         description='建立 TCP 连接的等待超时（秒）',
-        examples=[10, 30],
+        examples=[10, 30]
     )
     command_timeout: int = Field(
         default=30,
         description='单条 SQL 命令的执行超时（秒）',
-        examples=[30, 60],
+        examples=[30, 60]
     )
 
     # ------------------------------
@@ -188,22 +277,22 @@ class DatabaseSettings(BaseModel):
     ssl_mode: str = Field(
         default='',
         description='SSL 模式：disable / require / verify-ca / verify-full；空表示不启用',
-        examples=['disable', 'require', 'verify-ca', 'verify-full'],
+        examples=['disable', 'require', 'verify-ca', 'verify-full']
     )
     ssl_ca: str = Field(
         default='',
         description='CA 证书文件路径（verify-ca / verify-full 时需要）',
-        examples=['/etc/ssl/certs/ca.pem'],
+        examples=['/etc/ssl/certs/ca.pem']
     )
     ssl_cert: str = Field(
         default='',
         description='客户端证书文件路径',
-        examples=['/etc/ssl/certs/client.pem'],
+        examples=['/etc/ssl/certs/client.pem']
     )
     ssl_key: str = Field(
         default='',
         description='客户端私钥文件路径',
-        examples=['/etc/ssl/private/client.key'],
+        examples=['/etc/ssl/private/client.key']
     )
 
     # ------------------------------
@@ -358,7 +447,7 @@ class DatabaseSettings(BaseModel):
     # 引擎配置桥接
     # ------------------------------
     def to_node_config(self) -> NodeConfig:
-        """转换为 :class:`~fastapi_augment.db.sqlalchemy.engine.NodeConfig`
+        """转换为 :class:`~fastapi_augment.db.sqlalchemy.config.NodeConfig`
 
         桥接规则：
           - ``pool_*`` / ``echo`` / ``url`` 直接映射到同名字段
