@@ -1004,8 +1004,8 @@ fastapi_augment/
 ├── db/
 │   └── sqlalchemy/
 │       ├── base.py           # SQLAlchemy DeclarativeBase
-│       ├── engine.py         # EngineManager / NodeConfig / ClusterTopology
-│       ├── settings.py       # DatabaseSettings 嵌套数据库配置
+│       ├── config.py         # DatabaseConfig / NodeConfig / ClusterTopology 配置模型
+│       ├── engine.py         # EngineManager 引擎生命周期管理（读写分离）
 │       ├── session.py        # SessionFactory（读写分离）
 │       ├── model_base.py     # ModelBase（ULID 主键）
 │       ├── repository_base.py # RepositoryBase（泛型仓储 + paginate）

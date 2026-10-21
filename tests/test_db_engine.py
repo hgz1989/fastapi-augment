@@ -1,13 +1,11 @@
 """
-db.sqlalchemy.engine 模块测试 — NodeConfig / ClusterTopology / EngineManager
+db.sqlalchemy.config 模块测试 — NodeConfig / ClusterTopology
+db.sqlalchemy.engine 模块测试 — EngineManager
 """
 import pytest
 
-from fastapi_augment.db.sqlalchemy.engine import (
-    NodeConfig,
-    ClusterTopology,
-    EngineManager
-)
+from fastapi_augment.db.sqlalchemy.config import ClusterTopology, NodeConfig
+from fastapi_augment.db.sqlalchemy.engine import EngineManager
 
 
 # ── NodeConfig ────────────────────────────────────────────────────────
@@ -37,7 +35,7 @@ class TestNodeConfig:
         assert node.echo is True
 
     def test_empty_url_raises(self):
-        with pytest.raises(ValueError, match='url must not be empty'):
+        with pytest.raises(ValueError, match='at least 1 character'):
             NodeConfig(url='')
 
     def test_negative_pool_size_raises(self):
